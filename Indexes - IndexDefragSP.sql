@@ -1,7 +1,7 @@
 
 -- use [master]
 
-alter procedure IndexDefragSP (
+create or alter procedure IndexDefragSP (
 	@TableSizeOver						int = 0,
 	@TableSizeUnder						int = 1000000000,
 	
@@ -32,7 +32,12 @@ set nocount on
 Author: Aleksey Vitsko
 Created: December 2017
 
+Version: 1.02
+
 History:
+
+2020-04-26 - Aleksey Vitsko
+When @GenerateReportOnly = 1, report will show additional column - Index Size in Megabytes (IndexSizeMB)
 
 2018-11-09 - Aleksey Vitsko
 update/fix: Added support for databases that have tables in schemas that are not dbo
@@ -413,6 +418,9 @@ create table #Indexes (
 	iPageCountBefore			int,
 	iPageCountAfter				int,
 
+	iIndexSizeMBBefore			decimal(16,2),
+	iIndexSizeMBAfter			decimal(16,2),
+
 	iSuccess					bit default 0,
 	iStartTime					datetime,
 	iEndTime					datetime,
@@ -573,7 +581,8 @@ while @@FETCH_STATUS = 0 begin
 	update #Indexes
 		set iFragmentCountBefore = ipsFragment_count,
 			iFragmentationPctBefore = ipsAvg_fragmentation_in_percent,
-			iPageCountBefore = ipsPage_Count
+			iPageCountBefore = ipsPage_Count,
+			iIndexSizeMBBefore = ipsPage_Count / 128
 	from #Indexes i
 		join #IndexPhysicalStats ips on
 			iDB_ID = ipsDB_ID
@@ -727,16 +736,17 @@ if @GenerateReportOnly = 1 begin
 		iDB_ID						[DatabaseID],
 		iTableName					[TableName],
 		iObject_ID					[TableObjectID],
-		iTableTotalSizeBefore		[TableTotalSize],
+		iTableTotalSizeBefore		[TableTotalSizeMB],
 		iIndex_ID					[IndexID],
 		iType						[IndexType],
 		iFragmentCountBefore		[FragmentCount],
 		iFragmentationPctBefore		[FragmentationPercent],
 		iPageCountBefore			[PageCount],
+		iIndexSizeMBBefore			[IndexSizeMB],
 		iAction						[Action],
 		iStatement					[Statement]
 	from #Indexes
-	order by iDBName, iTableTotalSizeBefore, iFragmentationPctBefore
+	order by iDBName, iTableTotalSizeBefore, iIndexSizeMBBefore
 
 end		-- end of Generate Report Only logic
 
