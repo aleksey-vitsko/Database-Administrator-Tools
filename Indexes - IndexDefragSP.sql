@@ -14,16 +14,17 @@ create or alter procedure IndexDefragSP (
 	@ExcludeDBList						varchar(250) = NULL,						-- exclude database list (example: "database1, database2") 
 																					-- can be used in conjunction with @TargetDB = 'user' when you want to check all user databases, but exclude couple of them
 	
-	@ReorganizeOnly						bit = 0,
-	@RebuildOnly						bit = 0,
+	@ReorganizeOnly						tinyint = 0,								-- set this to 1 if you want only REORGANIZE operations to occur (REBUILDs will not be executed)
+	@RebuildOnly						tinyint = 0,								-- set this to 1 if you want only REBUILD operations to occur (REORGANIZEs will not be executed)
 	
-	@RebuildHeapTables					bit = 0,
+	@RebuildHeapTables					tinyint = 0,								-- set this to 1 if you want REBUILD heap tables as well (that reached necessary fragmentation level, of course)
 	@DoNotRebuildIndexOver_MB			int = 0,									-- do not rebuild indexes that are bigger than N megabytes in size (if you do not want to mess with big indexes)
 	@MaxDOP								tinyint = 0,								-- max degree of paralellism
 
-	@GenerateReportOnly					bit = 0,									
+	@GenerateReportOnly					tinyint = 1,								-- by default, procedure will only be generating reports (no actions will be executed) 
+																					-- if you want rebuild/reogranizes to be executed by SP, set @GenerateReportOnly = 1
 
-	@SendReportEmail					bit = 1,
+	@SendReportEmail					tinyint = 1,
 	@EmailProfileName					varchar(100) = 'Server email alerts',
 	@toList								varchar(500) = 'email@domain.com'
 
@@ -37,9 +38,13 @@ set nocount on
 Author: Aleksey Vitsko
 Created: December 2017
 
-Version: 1.04
+Version: 1.05
 
 History:
+
+2020-05-10 - Aleksey Vitsko
+@GenerateReportOnly	will be 0 by default (no actions executed)
+Also added input parameters validation
 
 2020-05-10 - Aleksey Vitsko
 @TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases
@@ -84,7 +89,49 @@ declare
 	@toList								varchar(500) = 'email@domain.com'
 */
 
------------------------------------------ Pre-Checks ------------------------------------------------------
+
+
+
+----------------------------------------- Input Parameters Validation ------------------------------------------------------
+
+
+-- @ReorganizeOnly validation
+if @ReorganizeOnly not in (0,1) begin
+	print 'Please set @ReorganizeOnly to 0 or 1'
+	print 'Exiting...'
+	return
+end
+
+-- @RebuildOnly validation
+if @RebuildOnly not in (0,1) begin
+	print 'Please set @RebuildOnly to 0 or 1'
+	print 'Exiting...'
+	return
+end
+
+-- @RebuildHeapTables validation
+if @RebuildHeapTables not in (0,1) begin
+	print 'Please set @RebuildHeapTables to 0 or 1'
+	print 'Exiting...'
+	return
+end
+
+-- @GenerateReportOnly validation
+if @GenerateReportOnly not in (0,1) begin
+	print 'Please set @GenerateReportOnly to 0 or 1'
+	print 'Exiting...'
+	return
+end
+
+-- @SendReportEmail validation
+if @SendReportEmail not in (0,1) begin
+	print 'Please set @SendReportEmail to 0 or 1'
+	print 'Exiting...'
+	return
+end
+
+
+
 
 -- table size limits
 if @tableSizeOver > @tableSizeUnder begin
