@@ -8,18 +8,20 @@ create or alter procedure IndexDefragSP (
 	@ReorganizeThreshold				decimal(5,2) = 10,
 	@RebuildThreshold					decimal(5,2) = 30,
 	
-	@TargetDB							varchar(250) = 'Database1, Database2',
-	@ExcludeDBList						varchar(250) = NULL,
-	@TargetTables						varchar(250) = NULL,
-
+	@TargetDB							varchar(250) = 'user',						-- list of databases where indexes will be evaluated (options: "all"; "user"; "system"; "even/odd")
+																					-- or a user-specified list of databases comma/semicolon/space-separated ("database1, database2")
+	
+	@ExcludeDBList						varchar(250) = NULL,						-- exclude database list (example: "database1, database2") 
+																					-- can be used in conjunction with @TargetDB = 'user' when you want to check all user databases, but exclude couple of them
+	
 	@ReorganizeOnly						bit = 0,
 	@RebuildOnly						bit = 0,
 	
 	@RebuildHeapTables					bit = 0,
-	@DoNotRebuildIndexOver_MB			int = 0,
-	@MaxDOP								tinyint = 2,
+	@DoNotRebuildIndexOver_MB			int = 0,									-- do not rebuild indexes that are bigger than N megabytes in size (if you do not want to mess with big indexes)
+	@MaxDOP								tinyint = 0,								-- max degree of paralellism
 
-	@GenerateReportOnly					bit = 0,
+	@GenerateReportOnly					bit = 0,									
 
 	@SendReportEmail					bit = 1,
 	@EmailProfileName					varchar(100) = 'Server email alerts',
@@ -35,9 +37,13 @@ set nocount on
 Author: Aleksey Vitsko
 Created: December 2017
 
-Version: 1.03
+Version: 1.04
 
 History:
+
+2020-05-10 - Aleksey Vitsko
+@TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases
+@MaxDOP will not be 0 by default 
 
 2020-05-10 - Aleksey Vitsko
 Added @DoNotRebuildIndexOver_MB parameter
