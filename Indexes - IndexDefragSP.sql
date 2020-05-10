@@ -14,9 +14,12 @@ create or alter procedure IndexDefragSP (
 
 	@ReorganizeOnly						bit = 0,
 	@RebuildOnly						bit = 0,
+	
 	@RebuildHeapTables					bit = 0,
-	@GenerateReportOnly					bit = 0,
+	@DoNotRebuildIndexOver_MB			int = 0,
 	@MaxDOP								tinyint = 2,
+
+	@GenerateReportOnly					bit = 0,
 
 	@SendReportEmail					bit = 1,
 	@EmailProfileName					varchar(100) = 'Server email alerts',
@@ -32,9 +35,14 @@ set nocount on
 Author: Aleksey Vitsko
 Created: December 2017
 
-Version: 1.02
+Version: 1.03
 
 History:
+
+2020-05-10 - Aleksey Vitsko
+Added @DoNotRebuildIndexOver_MB parameter
+If size (megabytes) of the index that requires REBUILD, exceeds specified value (@DoNotRebuildIndexOver_MB, default = 0 (no limit)) - it will be ignored and will NOT be rebuilt
+This way we can avoid rebuilding some really big indexes, and its consequences (possible data/log file growth, excessive transaction log backups, lots of IO in Availability Groups, etc)
 
 2020-04-26 - Aleksey Vitsko
 When @GenerateReportOnly = 1, report will show additional column - Index Size in Megabytes (IndexSizeMB)
@@ -722,6 +730,21 @@ if @RebuildHeapTables = 1 begin
 	'
 	RAISERROR (@ProgressText, 0, 1) with NOWAIT
 end
+
+
+
+-- remove rows where index size (megabytes) is over specified threshold, and command is REBUILD 
+if @DoNotRebuildIndexOver_MB > 0 begin
+	delete from #Indexes
+	where	iAction = 'REBUILD'
+			and  iIndexSizeMBBefore > @DoNotRebuildIndexOver_MB
+
+	set @ProgressText = cast(@@RowCount as varchar) + ' indexes that require rebuild, were ignored due to their size (MB) exceeding @DoNotRebuildIndexOver_MB value
+	'
+	RAISERROR (@ProgressText, 0, 1) with NOWAIT
+
+end
+
 
 
 
