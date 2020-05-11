@@ -14,6 +14,8 @@ create or alter procedure IndexDefragSP (
 	@ExcludeDBList						varchar(250) = NULL,						-- exclude database list (example: "database1, database2") 
 																					-- can be used in conjunction with @TargetDB = 'user' when you want to check all user databases, but exclude couple of them
 	
+	@PageCompressionDBList				varchar(250) = NULL,						-- specify list of databases where you want to apply "data_compression = PAGE" option for REBUILD operations
+
 	@ReorganizeOnly						tinyint = 0,								-- set this to 1 if you want only REORGANIZE operations to occur (REBUILDs will not be executed)
 	@RebuildOnly						tinyint = 0,								-- set this to 1 if you want only REBUILD operations to occur (REORGANIZEs will not be executed)
 	
@@ -38,17 +40,20 @@ set nocount on
 Author: Aleksey Vitsko
 Created: December 2017
 
-Version: 1.05
+Version: 1.06
 
 History:
 
+2020-05-11 - Aleksey Vitsko
+Added @PageCompressionDBList parameter, user-supplied list of databases, where you want to apply "data_compression = page" option during REBUILD operations
+
 2020-05-10 - Aleksey Vitsko
-@GenerateReportOnly	will be 0 by default (no actions executed)
+@GenerateReportOnly	will be 1 by default (no actions executed)
 Also added input parameters validation
 
 2020-05-10 - Aleksey Vitsko
 @TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases
-@MaxDOP will not be 0 by default 
+@MaxDOP will be 0 by default 
 
 2020-05-10 - Aleksey Vitsko
 Added @DoNotRebuildIndexOver_MB parameter
@@ -230,7 +235,9 @@ declare @databases table (
 	DBSizeMB_After		decimal(16,2),
 
 	ReducedBy			decimal(16,2),
-	ReductionPct		decimal(5,2))
+	ReductionPct		decimal(5,2),
+	
+	DBPageCompression	tinyint default 0)
 
 
 -- all
@@ -378,6 +385,60 @@ if @ExcludeDBList is not NULL begin
 			dbName = DBNameExclude
 
 end
+
+
+
+-- databases where you want to apply "data_compression = PAGE" option for REBUILD operations
+if @PageCompressionDBList is not NULL begin
+
+	drop table if exists #DatabasesPageCompression
+
+	create table #DatabasesPageCompression (
+		DBNameCompression			varchar(150))
+			
+	declare @Increment3 tinyint = 0, @StringLengthCompress tinyint, @char3 varchar(1), @DBNameCompress varchar(50)
+	
+	set @Increment3 = 1	
+	set @StringLengthCompress = len(@PageCompressionDBList)
+	set @DBNameCompress = ''
+
+	while @Increment3 <= @StringLengthCompress begin
+
+		set @char3 = substring(@PageCompressionDBList,@Increment3,1)
+
+		if @char3 not in (' ',',',';') begin
+			set @DBNameCompress = @DBNameCompress + @char3
+		end
+
+		if @char3 in (' ',',',';') begin
+			if exists (select * from sys.databases where [name] = @DBNameCompress and state_desc = 'ONLINE') and not exists (select * from #DatabasesPageCompression where DBNameCompression = @DBNameCompress) begin 
+				insert into #DatabasesPageCompression (DBNameCompression)
+				select @DBNameCompress
+			end	
+
+			set @DBNameCompress = ''
+		end
+
+		if @Increment3 = @StringLengthCompress begin
+			if exists (select * from sys.databases where [name] = @DBNameCompress and state_desc = 'ONLINE') and not exists (select * from #DatabasesPageCompression where DBNameCompression = @DBNameCompress) begin 
+				insert into #DatabasesPageCompression (DBNameCompression)
+				select @DBNameCompress
+			end	
+		end
+
+		set @Increment3 = @Increment3 + 1
+	
+	end
+
+	update d
+		set DBPageCompression = 1
+	from @databases d
+		join #DatabasesPageCompression on
+			dbName = DBNameCompression
+
+end
+
+
 
 
 -- get database id
@@ -797,6 +858,26 @@ if @DoNotRebuildIndexOver_MB > 0 begin
 	RAISERROR (@ProgressText, 0, 1) with NOWAIT
 
 end
+
+
+
+-- apply "data_compression = PAGE" to databases in the @PageCompressionDBList list
+if @PageCompressionDBList is not NULL begin
+
+	update #Indexes
+		set iStatement = replace(iStatement,'with (','with ( DATA_COMPRESSION = PAGE, ')
+	from #Indexes
+		join @databases on
+			iDBName = DBName
+			and DBPageCompression = 1
+	where	iAction = 'REBUILD'
+	
+	set @ProgressText = cast(@@RowCount as varchar) + ' indexes that require rebuild, "data_compression = page" option will be applied
+	'
+	RAISERROR (@ProgressText, 0, 1) with NOWAIT
+
+end
+
 
 
 
