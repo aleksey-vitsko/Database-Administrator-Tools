@@ -19,6 +19,14 @@ Description: shows buffer pool size information
 Accepts @DetailType parameter
 
 
+History:
+
+2021-01-19 - Aleksey Vitsko - fixed INT arithmetic overflow issue with row_count
+
+2019-08-10 - Aleksey Vitsko - created procedure
+
+
+
 ********************************************************************************************************/
 
 
@@ -50,7 +58,7 @@ if @DetailType in ('','summary') begin
 			@FreeSpaceMB = t.tFreeSpaceMB
 	from (select 
 			count(*)		[tPageCount],
-			sum(row_count)	[tRowCount],
+			sum(cast(row_count as bigint))	[tRowCount],
 			sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[tFreeSpaceMB]
 			from sys.dm_os_buffer_descriptors) t
 
@@ -78,7 +86,7 @@ if @DetailType in ('','database','databases') begin
            when ( [database_id] = 32767 ) then 'Resource Database' 
            else db_name( database_id) 
         end															[Database_Name],
-		sum(row_count)												[Row_Count],
+		sum(cast(row_count as bigint))								[Row_Count],
 		(count(file_id) * 8) / 1024									[Buffer_Pool_Size_MB],
 		(count(file_id) * 8) / 1024 / 1024							[Buffer_Pool_Size_GB]
 		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[Free_Space_In_Pages_MB]
@@ -123,7 +131,7 @@ if @DetailType in ('page type','page types') begin
            else db_name( database_id) 
         end															[Database_Name],
 		page_type													[Page_Type],
-		sum(row_count)												[Row_Count],
+		sum(cast(row_count as bigint))								[Row_Count],
 		(count(file_id) * 8) / 1024									[Buffer_Pool_Size_MB],
 		(count(file_id) * 8) / 1024 / 1024							[Buffer_Pool_Size_GB]
 		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[Free_Space_MB]
