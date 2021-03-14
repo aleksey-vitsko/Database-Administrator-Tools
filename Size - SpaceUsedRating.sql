@@ -10,13 +10,14 @@ begin
 Author: Aleksey Vitsko
 
 Purpose: For selected database shows 1) Total data / index size inside the data file 2) data / index size for each table
-Version: 1.24
+Version: 1.25
 
 Created: August 2017
 Example: exec SpaceUsedRating 
 
 History:
 
+--> 2021-03-12 - Aleksey Vitsko - added square brackets to schema names that have following format: 'domain\username'
 
 --> 2019-11-21 - Aleksey Vitsko - added ability to log database size into table ServerLogsDB..[DatabaseGrowthLogger]
 
@@ -118,6 +119,12 @@ update #Tables
 from #Tables
 	join sys.schemas on
 		SchemaID = [schema_id]
+
+
+-- add square brackets to schema names that have following format: 'domain\username'
+update #Tables
+	set SchemaName = quotename(SchemaName)
+where SchemaName like '%\%'
 
 
 -- full table names
