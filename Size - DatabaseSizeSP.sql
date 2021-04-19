@@ -14,12 +14,13 @@ Remarks:
 This procedure shows size information for each database on the instance
 Shows total size and total space used for each data file / log file for each database
 
-Version: 1.01
+Version: 1.02
 
 ---------------------------------------
 
 History
 
+2020-07-20 - Aleksey Vitsko - ONLINE state databases only
 2019-02-07 - Aleksey Vitsko - added drive / volume space usage info in the output
 2018-01-15 - Aleksey Vitsko - created procedure
 
@@ -81,6 +82,7 @@ declare
 declare DatabaseCursor cursor local fast_forward for
 select database_id, [name] 
 from sys.databases
+where state_desc in ('ONLINE')
 order by [name]
 
 open DatabaseCursor
