@@ -14,23 +14,36 @@ Created: May 2018
 Accepts arguments (@command):
 
 'all'									-- show all sessions / connections (default)
+
 'executing','running'					-- show user sessions that are currently running / executing queries
 'blocking','blocked'					-- show sessions that are blocked / cause blocking
+
 'user'									-- show only user sessions
 'system'								-- show only system sessions
+
 'open tran'								-- show sessions that have open transaction
 'execute as','run as','impersonate'		-- show sessions that have original login <> current login
+
+'memory grant','memory grants'			-- show sessions that have memory grants
+'tempdb'								-- show sessions that currently consume tempdb
+
 'summary'								-- show aggregate session counts by login
+
 
 --------------------------------------------------------------------------------------------------------------------------
 
-Version: 1.11
+Version: 1.14
 
 Change history:
 
-2018-05-08 - Aleksey.Vitsko - added support for db_user_name
-2018-05-07 - Aleksey.Vitsko - added support for blocking_sql_text 
-2018-05-03 - Aleksey.Vitsko - created procedure
+2022-08-11 - Aleksey Vitsko - added command "tempdb" (show only sessions that currently consume tempdb)
+2022-08-11 - Aleksey Vitsko - added "tempdb_session_kb" and "tempdb_task_kb" columns (show tempdb consumption by session)
+2022-08-10 - Aleksey Vitsko - added output mode "memory grant" (will show only sessions that have memory grants)
+2022-08-10 - Aleksey Vitsko - added columns related to query memory grant information
+2022-08-10 - Aleksey Vitsko - renamed "memory_usage" column to "memory_usage_pages", other cosmetic changes
+2018-05-08 - Aleksey Vitsko - added support for db_user_name
+2018-05-07 - Aleksey Vitsko - added support for blocking_sql_text 
+2018-05-03 - Aleksey Vitsko - created procedure
 
 
 ******************************************************************************************/
@@ -41,29 +54,29 @@ Change history:
 if object_id ('tempdb..#SessionsConnections') is not null drop table #SessionsConnections
 
 create table #SessionsConnections (
-	session_id							smallint,				-- sys.dm_exe_sessions
+	session_id							smallint,				-- sys.dm_exec_sessions
 	kpid								smallint,				-- sys.sysprocesses (windows thread id)
 	
-	database_id							int,					-- sys.dm_exe_sessions
+	database_id							int,					-- sys.dm_exec_sessions
 	[db_name]							varchar(150),			-- sys.databases
 	
-	is_user_process						bit,					-- sys.dm_exe_sessions
-	[host_name]							nvarchar(128),			-- sys.dm_exe_sessions
+	is_user_process						bit,					-- sys.dm_exec_sessions
+	[host_name]							nvarchar(128),			-- sys.dm_exec_sessions
 	host_process_id						int,
-	[program_name]						nvarchar(128),			-- sys.dm_exe_sessions
-	client_interface_name				nvarchar(32),			-- sys.dm_exe_sessions
+	[program_name]						nvarchar(128),			-- sys.dm_exec_sessions
+	client_interface_name				nvarchar(32),			-- sys.dm_exec_sessions
 
-	nt_domain							nvarchar(128),			-- sys.dm_exe_sessions
-	nt_user_name						nvarchar(128),			-- sys.dm_exe_sessions
-	login_name							nvarchar(128),			-- sys.dm_exe_sessions
-	original_login_name					nvarchar(128),			-- sys.dm_exe_sessions
-	security_id							varbinary(85),			-- sys.dm_exe_sessions
-	original_security_id				varbinary(85),			-- sys.dm_exe_sessions
+	nt_domain							nvarchar(128),			-- sys.dm_exec_sessions
+	nt_user_name						nvarchar(128),			-- sys.dm_exec_sessions
+	login_name							nvarchar(128),			-- sys.dm_exec_sessions
+	original_login_name					nvarchar(128),			-- sys.dm_exec_sessions
+	security_id							varbinary(85),			-- sys.dm_exec_sessions
+	original_security_id				varbinary(85),			-- sys.dm_exec_sessions
 
 	connect_time						datetime,				-- connections
-	login_time							datetime,				-- sys.dm_exe_sessions
-	[status]							nvarchar(30),			-- sys.dm_exe_sessions
-	[language]							nvarchar(128),			-- sys.dm_exe_sessions
+	login_time							datetime,				-- sys.dm_exec_sessions
+	[status]							nvarchar(30),			-- sys.dm_exec_sessions
+	[language]							nvarchar(128),			-- sys.dm_exec_sessions
 
 	cmd									nvarchar(32),			-- sys.sysprocesses
 	command								nvarchar(32),			-- exec_requests
@@ -88,23 +101,32 @@ create table #SessionsConnections (
 	local_net_address					varchar(48),			-- connections
 	local_tcp_port						int,					-- connections
 
-	cpu_time							int,					-- sys.dm_exe_sessions
-	memory_usage						int,					-- sys.dm_exe_sessions
-	reads								bigint,					-- sys.dm_exe_sessions
-	writes								bigint,					-- sys.dm_exe_sessions
-	logical_reads						bigint,					-- sys.dm_exe_sessions
+	cpu_time							int,					-- sys.dm_exec_sessions
+	memory_usage_pages					int,					-- sys.dm_exec_sessions					-- Number of 8-KB pages of memory used by this session.
 	
-	[deadlock_priority]					int,					-- sys.dm_exe_sessions
-	open_transaction_count				int,					-- sys.dm_exe_sessions
-	row_count							bigint,					-- sys.dm_exe_sessions
+	requested_memory_kb					bigint,					-- sys.dm_exec_query_memory_grants		-- Total requested amount of memory in kilobytes.
+	granted_memory_kb					bigint,					-- sys.dm_exec_query_memory_grants		-- Total amount of memory actually granted in kilobytes. Can be NULL if the memory is not granted yet.
+	used_memory_kb 						bigint, 				-- sys.dm_exec_query_memory_grants		-- Physical memory used at this moment in kilobytes.
+	max_used_memory_kb					bigint,					-- sys.dm_exec_query_memory_grants		-- Maximum physical memory used up to this moment in kilobytes.
+
+	tempdb_session_kb					bigint,					-- sys.dm_db_session_space_usage		-- (((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) > 0
+	tempdb_task_kb						bigint,					-- sys.dm_db_task_space_usage			-- (((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) > 0
+
+	reads								bigint,					-- sys.dm_exec_sessions
+	writes								bigint,					-- sys.dm_exec_sessions
+	logical_reads						bigint,					-- sys.dm_exec_sessions
+	
+	[deadlock_priority]					int,					-- sys.dm_exec_sessions
+	open_transaction_count				int,					-- sys.dm_exec_sessions
+	row_count							bigint,					-- sys.dm_exec_sessions
 	transaction_isolation_level_id		smallint,				-- 0 = Unspecified 1 = ReadUncommitted 2 = ReadCommitted 3 = Repeatable 4 = Serializable 5 = Snapshot
 	transaction_isolation_level			varchar(50),			
 
-	total_scheduled_time				int,					-- sys.dm_exe_sessions
-	total_elapsed_time					int,					-- sys.dm_exe_sessions
+	total_scheduled_time				int,					-- sys.dm_exec_sessions
+	total_elapsed_time					int,					-- sys.dm_exec_sessions
 
-	last_request_start_time				datetime,				-- sys.dm_exe_sessions
-	last_request_end_time				datetime,				-- sys.dm_exe_sessions
+	last_request_start_time				datetime,				-- sys.dm_exec_sessions
+	last_request_end_time				datetime,				-- sys.dm_exec_sessions
 
 	wait_type							nvarchar(60),			-- exec_requests
 	wait_time							int,					-- exec_requests
@@ -126,7 +148,7 @@ create clustered index CIX_Session_ID on #SessionsConnections (session_id)
 
 -- get sessions
 insert into #SessionsConnections (session_id, database_id, is_user_process, [host_name], host_process_id, [program_name], client_interface_name, nt_domain, nt_user_name, login_name, security_id, original_security_id,
-original_login_name, login_time, [status], [language],cpu_time, memory_usage, reads, writes, logical_reads, [deadlock_priority], open_transaction_count, row_count, transaction_isolation_level_id, total_scheduled_time,
+original_login_name, login_time, [status], [language],cpu_time, memory_usage_pages, reads, writes, logical_reads, [deadlock_priority], open_transaction_count, row_count, transaction_isolation_level_id, total_scheduled_time,
 	total_elapsed_time, last_request_start_time, last_request_end_time)
 select 
 	session_id, 
@@ -159,6 +181,60 @@ select
 	last_request_start_time, 
 	last_request_end_time 
 from sys.dm_exec_sessions
+
+
+
+
+-- get memory grant info
+update s
+	set s.requested_memory_kb = g.requested_memory_kb,		
+		s.granted_memory_kb = g.granted_memory_kb,			
+		s.used_memory_kb = g.used_memory_kb,			
+		s.max_used_memory_kb = g.max_used_memory_kb
+from #SessionsConnections s
+	join sys.dm_exec_query_memory_grants g on
+		s.session_id = g.session_id
+
+
+
+-- if command is "memory grant", delete other sessions from sp output
+if @command in ('memory grant','memory grants') begin
+	delete from #SessionsConnections 
+	where requested_memory_kb is NULL
+end
+
+
+
+-- get tempdb usage by session 
+update s
+	set tempdb_session_kb = ((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8
+from #SessionsConnections s
+	join sys.dm_db_session_space_usage ssu on
+		s.session_id = ssu.session_id
+		and ((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) > 0
+
+
+-- get tempdb usage by task / session 
+update s
+	set tempdb_task_kb = [sum_tempdb_task_pages] * 8
+from #SessionsConnections s
+	join	(select 
+				session_id,
+				sum((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count))		[sum_tempdb_task_pages]
+			from sys.dm_db_task_space_usage
+			where	((user_objects_alloc_page_count - user_objects_dealloc_page_count) + (internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) > 0
+			group by session_id) tsu on
+		
+		s.session_id = tsu.session_id
+
+
+-- if command is "memory grant", delete other sessions from sp output
+if @command in ('tempdb') begin
+	delete from #SessionsConnections 
+	where	tempdb_session_kb is NULL
+			and tempdb_task_kb is NULL
+end
+
 
 
 
@@ -394,6 +470,33 @@ if @command in ('open tran') begin
 	order by db_name, database_id, is_user_process, login_name
 
 end
+
+
+
+-- view memory grant info
+if @command in ('memory grant','memory grants') begin
+	
+	select * from #SessionsConnections
+	where	requested_memory_kb is not NULL
+	order by requested_memory_kb desc
+	--order by db_name, database_id, is_user_process, login_name
+
+end
+
+
+
+-- view tempdb consumption
+if @command in ('tempdb') begin
+	
+	select * from #SessionsConnections
+	where	tempdb_session_kb is not NULL
+			or tempdb_task_kb is not NULL
+	order by tempdb_session_kb desc, tempdb_task_kb desc
+	
+end
+
+
+
 
 
 
