@@ -11,13 +11,15 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.07
+Version: 1.08
 
 Purpose: shows current performance counters for SQLServer:Memory Manager
 (these show how much RAM memory is being used by SQL Server, and what for: database data cache, connections, locks, etc.)
 
 History:
 
+2022-09-06 --> Aleksey Vitsko - slight updates to perf.counter description texts
+2022-09-06 --> Aleksey Vitsko - added information from "sys.dm_os_memory_clerks" to output in the Expert Mode = 1
 2022-08-27 --> Aleksey Vitsko - added @ExpertMode parameter - 0 is default and is simpler output, 1 will show all columns and details
 2022-08-26 --> Aleksey Vitsko - added "counter_location" column to the output
 2022-08-26 --> Aleksey Vitsko - added "percentage_info" column to the output
@@ -60,9 +62,9 @@ create table #MemoryManager (
 
 -- insert memory manager performance counter names with descriptions
 insert into #MemoryManager (counter_name, counter_location, counter_desc)
-values	('Total Server Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Total amount of memory SQL Server is currently consuming'),
+values	('Total Server Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Total amount of memory SQL Server is currently consuming ("Database Cache Memory" + "Stolen Server Memory" + "Free Memory")'),
 		('Target Server Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Total amount of memory SQL Server is allowed to consume (can be limited by "max server memory" setting)'),
-		('Database Cache Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Amount of memory SQL Server is currently using for cached database pages'),
+		('Database Cache Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Amount of memory SQL Server is currently using for cached 8-kb database pages'),
 		('Maximum Workspace Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Maximum amount of memory available for grants to executing processes. This memory is used primarily for hash, sort and create index operations'),
 		('Stolen Server Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Amount of memory SQL Server is using not for cached database pages (Plan Cache + Memory Grants + Locks + Connections + other)'),
 		('Lock Memory','sys.dm_os_performance_counters - SQLServer:Memory Manager','Amount of memory SQL Server is using for locks (lock manager)'),
@@ -162,8 +164,8 @@ if @ExpertMode = 0 begin
 	select
 		counter_name,
 		counter_desc,
-		cntr_value_MB,
-		cntr_value_GB
+		cntr_value_MB			[MB],
+		cntr_value_GB			[GB]
 	from #MemoryManager
 	order by cntr_value_MB desc
 
@@ -172,49 +174,34 @@ end
 
 if @ExpertMode = 1 begin
 
+	-- show break down of memory usage by SQL Server
 	select
 		counter_name,
 		counter_location,
 		counter_desc,
-		cntr_value,
-		cntr_value_MB,
-		cntr_value_GB,
+		cntr_value				[kb],
+		cntr_value_MB			[MB],
+		cntr_value_GB			[GB],
 		percentage_info
 	from #MemoryManager
 	order by cntr_value_MB desc
 
+
+	-- show memory clerks 
+	select 
+		[type]								[clerk_name], 
+		'sys.dm_os_memory_clerks - part of the "Stolen Server Memory"'		[clerk_location],
+		sum(pages_kb)						[kb],
+		sum(pages_kb) / 1024				[MB],
+		sum(pages_kb) / 1024 / 1024			[GB]
+	from sys.dm_os_memory_clerks
+	where [type] not in ('MEMORYCLERK_SQLBUFFERPOOL')
+	group by [type]
+	order by [kb] desc
+
+	
 end
 
-
-
-
-
-
-
-/*
-
- select object_name, 
-       counter_name, 
-       instance_name, 
-       cntr_value, 
-       cntr_type
-  from sys.dm_os_performance_counters
- where 1=1
-   and [object_name] = 'SQLServer:Memory Manager'
-
-
-
-		                                                                                               
-select
-	replace(counter_name,' (KB)','')	[counter_name],
-	cntr_value / 1024					[MB]	
-from sys.dm_os_performance_counters
-where	[object_name] = 'SQLServer:Memory Manager'
-		and counter_name not in ('External benefit of memory','Lock Blocks Allocated','Lock Owner Blocks Allocated','Lock Blocks','Lock Owner Blocks','Memory Grants Outstanding','Memory Grants Pending')
-order by [MB] desc
-
-
-*/
 
 
 end
