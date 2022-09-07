@@ -3,27 +3,24 @@
 
 create or alter procedure ServerSpaceUsage as begin
 
-/*************************************** Server Space Usage ********************************************
+/****************************************************** SERVER SPACE USAGE PROCEDURE **************************************************
 
 Author: Aleksey Vitsko
 
-Remarks:
+Version: 1.03
 
-This procedure shows size information for each database on the instance
+Description: this procedure shows size information for each database on the instance
 Shows total size and total space used for each data file / log file for each database
-
-Version: 1.02
-
----------------------------------------
 
 History
 
-2020-07-20 - Aleksey Vitsko - ONLINE state databases only
-2019-02-07 - Aleksey Vitsko - added drive / volume space usage info in the output
-2018-01-15 - Aleksey Vitsko - created procedure
+2022-09-07 --> Aleksey Vitsko - use sys.master_files instead of cycling through each database's sys.database_files
+2020-07-20 --> Aleksey Vitsko - ONLINE state databases only
+2019-02-07 --> Aleksey Vitsko - added drive / volume space usage info in the output
+2018-01-15 --> Aleksey Vitsko - created procedure
 
 
-***************************************************************************************************/
+****************************************************************************************************************************************/
 
 
 
@@ -72,43 +69,39 @@ create table #Results (
 	rTotalDBSizeMB				int)
 
 
-declare 
-	@DB_ID int, 
-	@DB_Name varchar(100),
-	@ExecStatement varchar(500)
 
-declare DatabaseCursor cursor local fast_forward for
-select database_id, [name] 
-from sys.databases
-where state_desc in ('ONLINE')
-order by [name]
 
-open DatabaseCursor
-fetch next from DatabaseCursor into @DB_ID, @DB_Name
+-- get details for database data/log files
+insert into #DatabasesAndFiles (dDB_ID, dType_Desc, dPhysical_Path, dLogical_FileName, dSizeMB, dMax_SizeMB, dGrowth_MB_or_Pct, dGrowthOption)
+select 
+	database_id,
+	[type_desc], 
+	physical_name, 
+	[name], size / 128, 
+	case max_size 
+		when -1 then -1 
+		else cast(max_size as bigint) / 128 
+	end, 
+	growth, 
+	case is_percent_growth 
+		when 0 then 'Fixed Space' 
+		else 'Percent' 
+	end 
+from sys.master_files
 
-while @@fetch_status = 0 begin
-	
-	set @ExecStatement = 'select [type_desc], physical_name, [name], size / 128, case max_size when -1 then -1 else cast(max_size as bigint) / 128 end, growth, case is_percent_growth when 0 then ''Fixed Space'' else ''Percent'' end from ' + @DB_Name + '.sys.database_files'
 
-	print @ExecStatement
+-- get database name
+update #DatabasesAndFiles
+	set dDB_Name = [name]
+from #DatabasesAndFiles
+	join sys.databases on
+		dDB_ID = database_id
 
-	-- insert database files info
-	insert into #DatabasesAndFiles (dType_Desc, dPhysical_Path, dLogical_FileName, dSizeMB, dMax_SizeMB, dGrowth_MB_or_Pct, dGrowthOption)
-	exec (@ExecStatement)
-
-	-- database ID and name
-	update #DatabasesAndFiles
-		set dDB_ID = @DB_ID,
-			dDB_Name = @DB_Name
-	where	dDB_ID is NULL
-			and dDB_Name is NULL
-
-	fetch next from DatabaseCursor into @DB_ID, @DB_Name
-
-end		-- end of cursor logic
 
 
 -- get space used for each data file
+declare @ExecStatement varchar(500)
+
 set @ExecStatement = 'use [?]; update #DatabasesAndFiles set dSpaceUsedMB = fileproperty(dLogical_FileName,''spaceused'') / 128 where dDB_Name = db_name()'		-- and dType_Desc = ''ROWS''
 exec sp_msforeachdb @ExecStatement
 
