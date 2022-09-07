@@ -1,13 +1,11 @@
 
--- use [master]
--- use [IntlBridgeDB]
 
-create or alter procedure DatabaseSizeSP as begin
 
-/*************************************** Database Size SP ********************************************
+create or alter procedure ServerSpaceUsage as begin
+
+/*************************************** Server Space Usage ********************************************
 
 Author: Aleksey Vitsko
-Created: Jan 2018
 
 Remarks:
 
@@ -230,51 +228,6 @@ order by rTotalDBSizeMB desc
 select * from #DatabasesAndFiles
 
 
-
-
-
--- select fileproperty('TestDB','spaceused') / 128
-
-/*
-
-exec #DBCC_SQLPERF_LOGSPACE
-
-*/
-
-
-/*
-
-dbcc sqlperf (logspace)
-
-
-use IntlBridgeDB
-
-select * from TestDB.sys.database_files
-
-exec sp_helpdb
-
-exec sp_spaceused
-
-select (sum (size)) * 8 / 1024 
-from IntlBridgeDB.sys.database_files
-where type_desc = 'ROWS'
-
-
-select [type_desc], physical_name, (size * 8) / 1024, 
-case max_size when -1 then -1 else (cast(max_size as bigint) * 8) / 1024 end, growth, is_percent_growth from ASPState.sys.database_files
-
-
-
-SELECT DB_NAME() AS DbName, 
-[name] AS FileName, 
-size/128.0 AS CurrentSizeMB, 
-size/128.0 - CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT)/128.0 AS FreeSpaceMB 
-FROM sys.database_files; 
-
-
-select fileproperty('IntlBridgeDB','spaceused') / 128
-
-*/
 
 end
 
