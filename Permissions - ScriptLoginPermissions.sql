@@ -6,13 +6,23 @@ create or alter procedure ScriptLoginPermissions (@LoginName as varchar(150)) as
 set nocount on
 
 
-/****************************************************** ScriptLoginPermissions *********************************************************
+/********************************************************* SCRIPT LOGIN PERMISSIONS PROCEDURE *****************************************************
 
-Version: 1.06
+Author: Aleksey Vitsko
+
+Version: 1.09
+
+Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
+Result can be copy-pasted and used to recreate these permissions on a different server. 
+Also, SP can be used to simply check permissions for a login, to see what she can or cannot do with certain securables.
+
 
 History:
 
---> 2020-01-06 - Aleksey Vitsko - even if login is sysadmin, still show all other permissions
+--> 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
+--> 2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
+--> 2022-09-15 - Aleksey Vitsko - add schema names as a prefix to object names
+--> 2020-01-06 - Aleksey Vitsko - even if login is sysadmin, still show all other permissions (were not shown before)
 --> 2019-02-01 - Aleksey Vitsko - added support for master, msdb, model databases
 --> 2019-02-01 - Aleksey Vitsko - look into ONLINE state databases only
 --> 2018-12-05 - Aleksey Vitsko - fixed bug related to xp_logininfo sp and SQL logins
@@ -21,13 +31,11 @@ History:
 --> 2018-05-01 - Aleksey Vitsko - created procedure
 
 
-***************************************************************************************************************************************/
+*******************************************************************************************************************************************************/
 
 
 
-
-
-------------------------------------------------- Declare Variables Section ----------------------------------------------
+-------------------------------------------------------------------- Variables  -----------------------------------------------------------------------
 
 -- variables
 declare 
@@ -40,10 +48,12 @@ declare
 	@sql						varchar(max),
 	@EngineEdition				varchar(300) = cast(serverproperty('EngineEdition') as varchar(300))
 
+
 declare @user_info table (
 	Indicator				bit,
 	[name]					varchar(150),
 	principal_id			smallint)
+
 
 declare @database_roles table (
 	[db_role_name]			varchar(150))
@@ -51,6 +61,7 @@ declare @database_roles table (
 
 declare @database_permissions table (
 	class_desc				varchar(150),
+	[schema_name]			varchar(150),
 	[object_name]			varchar(150),
 	[permission_name]		varchar(150),
 	state_desc				varchar(150),
@@ -65,21 +76,18 @@ declare @AD_Groups table (
 	tPermissionPath				varchar(150))
 
 
-
-
-
 -- result table that will contain all statements
 declare @Result table (
 	SQLStatement			varchar(max))
 
 
+declare @Result_temp table (
+	SQLStatement			varchar(500) primary key)
+
+
 	
--- azure or sql server
-if @EngineEdition not in ('5','6','8') begin
-	print ''
-end
 
-
+-------------------------------------------------------------------- Main Logic  -----------------------------------------------------------------------
 
 	-- check if specified login exists
 	if not exists (select * from sys.server_principals where name = @LoginName) begin
@@ -155,6 +163,7 @@ end
 						srm.role_principal_id = sp.principal_id
 						and sp.[name] = 'sysadmin'
 				where srm.member_principal_id = @server_principal_id) begin
+
 		insert into @Result (SQLStatement)
 		select 'alter server role [sysadmin] add member [' + @LoginName + ']'
 
@@ -163,12 +172,9 @@ end
 
 		insert into @Result (SQLStatement)
 		select '-- !!! WARNING: [' + @LoginName + ']' + ' can do everything on this instance, you can ignore below permissions'
-
-		-- goto show_results -- uncomment this line if you do not want to show any other permissions for sysadmin members
-		
+						
 	end
 	
-
 
 	-- server role membership
 	if exists (select * 
@@ -246,6 +252,11 @@ end
 		
 		-- database level permissions
 		set @sql = 'select class_desc, 
+			case class_desc
+				when ''OBJECT_OR_COLUMN'' then os.[name]
+				when ''TYPE'' then type_schema.[name]
+				else ''''
+			end,
 			case class_desc 
 				when ''DATABASE'' then ''DB''
 				when ''OBJECT_OR_COLUMN'' then o.[name]
@@ -265,41 +276,64 @@ end
 			left join ' + @database_name + '.sys.columns c on
 				dp.major_id = c.[object_id]
 				and dp.minor_id = c.[column_id]
+			left join ' + @database_name + '.sys.schemas os on
+				o.schema_id = os.schema_id
+			left join ' + @database_name + '.sys.schemas type_schema on
+				t.schema_id = type_schema.schema_id
 		where grantee_principal_id = ' + cast(@database_principal_id as varchar)
 				
 
-		insert into @database_permissions (class_desc,[object_name],[permission_name],state_desc,column_name)
+		insert into @database_permissions (class_desc,[schema_name],[object_name],[permission_name],state_desc,column_name)
 		exec (@sql)
 
 		
-		-- insert database level permissions
-		insert into @Result (SQLStatement)
+		-- insert database level permissions into result table
+		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'DATABASE'
 
-		insert into @Result (SQLStatement)
+		-- schema level permissions 
+		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' on schema::' + [object_name] + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'SCHEMA'
 
-		insert into @Result (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on ' + [object_name] + ' to [' + @database_user_name + ']'
+		-- object level permissions
+		insert into @Result_temp (SQLStatement)
+		select state_desc + ' ' + [permission_name] + ' on ' + [schema_name] + '.' + [object_name] + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is NULL
 
-		insert into @Result (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on ' + [object_name] + ' (' + column_name + ')' + ' to [' + @database_user_name + ']'
+		-- column level permissions
+		insert into @Result_temp (SQLStatement)
+		select state_desc + ' ' + [permission_name] + ' on ' + [schema_name] + '.' + [object_name] + ' (' + column_name + ')' + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is not NULL
 
-
-		insert into @Result (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on type::' + [object_name] + ' to [' + @database_user_name + ']'
+		-- permissions for types
+		insert into @Result_temp (SQLStatement)
+		select state_desc + ' ' + [permission_name] + ' on type::' + [schema_name] + '.' + [object_name] + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'TYPE'
+
+
+
+		-- replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
+		update @Result_temp
+			set SQLStatement = replace(SQLStatement,'GRANT_WITH_GRANT_OPTION','GRANT') + ' WITH GRANT OPTION'
+		where SQLStatement like 'GRANT_WITH_GRANT_OPTION%'
+
+
+		-- sort the permissions before inserting into @Result
+		insert into @Result (SQLStatement)
+		select SQLStatement 
+		from @Result_temp
+		order by SQLStatement
+
+
 
 
 		-- next database
@@ -309,6 +343,8 @@ end
 		delete from @user_info
 		delete from @database_roles
 		delete from @database_permissions
+		delete from @Result_temp
+
 
 		-- next database
 		fetch next from Database_Cursor
@@ -321,10 +357,7 @@ end
 
 
 	
-
-
 -- show results
-show_results:
 select * from @Result
 
 
