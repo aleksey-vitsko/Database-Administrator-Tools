@@ -10,7 +10,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.09
+Version: 1.10
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +19,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
 --> 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
 --> 2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
 --> 2022-09-15 - Aleksey Vitsko - add schema names as a prefix to object names
@@ -295,27 +296,27 @@ declare @Result_temp table (
 
 		-- schema level permissions 
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on schema::' + [object_name] + ' to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on schema::[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'SCHEMA'
 
 		-- object level permissions
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on ' + [schema_name] + '.' + [object_name] + ' to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on [' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is NULL
 
 		-- column level permissions
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on ' + [schema_name] + '.' + [object_name] + ' (' + column_name + ')' + ' to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on [' + [schema_name] + '].[' + [object_name] + '] ([' + column_name + '])' + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is not NULL
 
 		-- permissions for types
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on type::' + [schema_name] + '.' + [object_name] + ' to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on type::[' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'TYPE'
 
