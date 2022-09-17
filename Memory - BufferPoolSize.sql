@@ -1,6 +1,5 @@
 
 
-
 create or alter procedure BufferPoolSize (
 	@DetailType			varchar(50) = ''		
 ) 
@@ -8,26 +7,34 @@ create or alter procedure BufferPoolSize (
 as begin
 
 
-/*************** BufferPoolSize Procedure **************************************************************
+/************************************************************ BUFFER POOL SIZE PROCEDURE ***********************************************************
 
 Author: Aleksey Vitsko
-Created: August 2019
 
-Description: shows buffer pool size information 
-(how much of database data is cached in memory)
+Version: 1.02
 
-Accepts @DetailType parameter
+Description: shows buffer pool size information (how much of database 8K-pages is cached in memory)
 
+--------------------------------------------------------------------------
+
+Accepts @DetailType parameter (output depends on supplied value):
+''								- default value, shows summary + database level information
+'summary'						- summary information
+'database','databases'			- show database-level information
+'clean" or "dirty'				- show clean and dirty buffer details
+'page type' or 'page types'		- show data / index / other page details
+
+--------------------------------------------------------------------------
 
 History:
 
-2021-01-19 - Aleksey Vitsko - fixed INT arithmetic overflow issue with row_count
+2022-09-17 --> Aleksey Vitsko - output [Buffer_Pool_Size_GB] as decimal instead of integer
+2022-09-17 --> Aleksey Vitsko - for database-level information, sort by [Buffer_Pool_Size_MB] descending
+2021-01-19 --> Aleksey Vitsko - fixed INT arithmetic overflow issue with row_count
+2019-08-10 --> Aleksey Vitsko - created procedure
 
-2019-08-10 - Aleksey Vitsko - created procedure
+*****************************************************************************************************************************************************/
 
-
-
-********************************************************************************************************/
 
 
 -- @DetailType value validation
@@ -37,10 +44,11 @@ if @DetailType not in ('','summary','database','databases','clean','dirty','page
 	
 @DetailType allowed values:
 	
-"summary" - shows only summary information
-"database" or "databases" - show database-level information
-"clean" or "dirty" - show clean and dirty buffer details
-"page type" or "page types" - show data / index / other page details'
+""								- summary + database-level information (default)
+"summary"						- shows summary information
+"database" or "databases"		- show database-level information
+"clean" or "dirty"				- show clean and dirty buffer details
+"page type" or "page types"		- show data / index / other page details'
 
 	return
 end
@@ -57,8 +65,8 @@ if @DetailType in ('','summary') begin
 			@RowCount = t.tRowCount,
 			@FreeSpaceMB = t.tFreeSpaceMB
 	from (select 
-			count(*)		[tPageCount],
-			sum(cast(row_count as bigint))	[tRowCount],
+			count(*)													[tPageCount],
+			sum(cast(row_count as bigint))								[tRowCount],
 			sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[tFreeSpaceMB]
 			from sys.dm_os_buffer_descriptors) t
 
@@ -66,13 +74,13 @@ if @DetailType in ('','summary') begin
 
 	
 	select 
-		@PageCount						[Buffer_Pool_Page_Count],
-		--@PageCount * 8				[Buffer_Pool_Size_KB],
-		@RowCount						[Row_Count],
-		@PageCount * 8 / 1024			[Buffer_Pool_Size_MB],
-		@PageCount * 8 / 1024 / 1024	[Buffer_Pool_Size_GB],	
-		@FreeSpaceMB					[Free_Space_In_Pages_MB],
-		@Pct_Free_Space					[Free_Space_In_Pages_Percent]
+		@PageCount																			[Buffer_Pool_Page_Count],
+		--@PageCount * 8																	[Buffer_Pool_Size_KB],
+		@RowCount																			[Row_Count],
+		@PageCount * 8 / 1024																[Buffer_Pool_Size_MB],
+		cast((cast(@PageCount as decimal(16,2)) * 8 / 1024 / 1024) as decimal(16,2))		[Buffer_Pool_Size_GB],	
+		@FreeSpaceMB																		[Free_Space_In_Pages_MB],
+		@Pct_Free_Space																		[Free_Space_In_Pages_Percent]
 
 end
 			
@@ -85,14 +93,15 @@ if @DetailType in ('','database','databases') begin
 		case 
            when ( [database_id] = 32767 ) then 'Resource Database' 
            else db_name( database_id) 
-        end															[Database_Name],
-		sum(cast(row_count as bigint))								[Row_Count],
-		(count(file_id) * 8) / 1024									[Buffer_Pool_Size_MB],
-		(count(file_id) * 8) / 1024 / 1024							[Buffer_Pool_Size_GB]
-		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[Free_Space_In_Pages_MB]
+        end																						[Database_Name],
+		sum(cast(row_count as bigint))															[Row_Count],
+		(count(file_id) * 8) / 1024																[Buffer_Pool_Size_MB],
+		--cast((count(file_id) * 8) as decimal(16,2)) / 1024 / 1024								[Buffer_Pool_Size_GB]
+		cast((cast((count(file_id) * 8) as decimal(16,2)) / 1024 / 1024) as decimal(16,2))		[Buffer_Pool_Size_GB]
+		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024									[Free_Space_In_Pages_MB]
 	from sys.dm_os_buffer_descriptors b
 	group by database_id 
-	order by [Buffer_Pool_Size_MB]
+	order by [Buffer_Pool_Size_MB] desc
 
 end
 
@@ -129,12 +138,12 @@ if @DetailType in ('page type','page types') begin
 		case 
            when ( [database_id] = 32767 ) then 'Resource Database' 
            else db_name( database_id) 
-        end															[Database_Name],
-		page_type													[Page_Type],
-		sum(cast(row_count as bigint))								[Row_Count],
-		(count(file_id) * 8) / 1024									[Buffer_Pool_Size_MB],
-		(count(file_id) * 8) / 1024 / 1024							[Buffer_Pool_Size_GB]
-		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024		[Free_Space_MB]
+        end																						[Database_Name],
+		page_type																				[Page_Type],
+		sum(cast(row_count as bigint))															[Row_Count],
+		(count(file_id) * 8) / 1024																[Buffer_Pool_Size_MB],
+		cast((cast((count(file_id) * 8) as decimal(16,2)) / 1024 / 1024) as decimal(16,2))		[Buffer_Pool_Size_GB]
+		,sum(cast(free_space_in_bytes as bigint)) / 1024 / 1024									[Free_Space_MB]
 	from sys.dm_os_buffer_descriptors b
 	group by database_id, [Page_Type]
 	order by [Database_Name], [Buffer_Pool_Size_MB], [Row_Count]
