@@ -1,22 +1,40 @@
 
 
 create or alter procedure DatabaseSpaceUsage (
-	@Command varchar(50) = 'all') as 
+	@DatabaseName			nvarchar(200)	= '',
+	@Command				varchar(50)		= 'all'				-- "all" output mode by default
 	
-begin
+	) as begin
 
 /****************************************************************** DATABASE SPACE USAGE PROCEDURE **************************************************************
 
 Author: Aleksey Vitsko
 
+Version: 1.15
+
 Description: For a given database, shows: 
 1) Total data / index / unused size inside the data file 
 2) data / index / unused size for each table in a database
 
-Version: 1.11
+--------------------------------------------------------------------------
+
+@Command parameter (output depends on supplied value):
+'all'							- default value, shows summary for database + table level information
+'summary'						- shows summary information
+'tables simple'					- shows table-level information
+'tables detail'					- shows detailed table-level information
+'log'							- log summary info to a table (does not work at the moment, going to refactor this)
+
+--------------------------------------------------------------------------
 
 History:
 
+2022-09-19 --> Aleksey Vitsko - made "tables detail" command work
+2022-09-19 --> Aleksey Vitsko - implement @DatabaseName parameter, and it's validation
+2022-09-19 --> Aleksey Vitsko - comment out the logging part, will refactor it later
+2022-09-19 --> Aleksey Vitsko - sort table details by [Table_Total_MB] descending
+2022-09-19 --> Aleksey Vitsko - changed table and schema names from varchar to nvarchar, increased length  
+2022-09-19 --> Aleksey Vitsko - always add square brackets to schema names
 2021-03-12 --> Aleksey Vitsko - added square brackets to schema names that have following format: 'domain\username'
 2019-11-21 --> Aleksey Vitsko - added ability to log database size into table ServerLogsDB..[DatabaseGrowthLogger]
 2019-11-20 --> Aleksey Vitsko - added "Total_Rows" column to "all" output
@@ -36,6 +54,43 @@ History:
 *****************************************************************************************************************************************************************/
 
 set nocount on
+
+
+-- variables
+declare 
+	@EngineEdition		varchar(300) = cast(serverproperty('EngineEdition') as varchar(300)),
+	@SQL				nvarchar(1000) = ''
+
+
+
+-- @DatabaseName parameter validation
+if @EngineEdition = '5' and @DatabaseName <> '' begin
+	
+	print 'Do not specify @DatabaseName parameter value when running procedure in Azure SQL Database
+Exiting...'
+
+	return
+end
+
+-- fill empty database name by current database name
+if @DatabaseName = '' begin
+	
+	set @DatabaseName = db_name()
+
+end
+
+-- check if supplied @DatabaseName exists in sys.databases
+if not exists (select * from sys.databases where [name] = @DatabaseName) begin
+
+	print 'Supplied @DatabaseName value doesn''t exist in sys.databases
+Please specify name of existing database
+
+Exiting...'
+
+	return
+end
+	
+
 
 
 -- @Command parameter validation
@@ -60,17 +115,17 @@ end
 -- temp tables
 create table #Tables  (
 	ID						int identity (1,1),
-	TableName				varchar(100),
+	TableName				nvarchar(500),
 	
 	SchemaID				int,
-	SchemaName				varchar(30),
+	SchemaName				nvarchar(100),
 
-	TableNameWithSchema		varchar(100))
+	TableNameWithSchema		nvarchar(600))
 
 
 create table #rating (
 	rID						int identity primary key,
-	rName					varchar(100),
+	rName					nvarchar(100),
 	
 	rRows					bigint,
 	rKBperRow				decimal(10,2),
@@ -93,30 +148,33 @@ create table #rating (
 
 
 
--- get table list for current database
-insert into #Tables (TableName, SchemaID)
-select 
+-- get list of tables for current database
+set @SQL = 'select 
 	[name],
 	[schema_id]
-from sys.tables
-order by name
+from ' + @DatabaseName + '.sys.tables
+order by name'
+
+insert into #Tables (TableName, SchemaID)
+exec (@SQL)
 
 
 -- get schema names
-update #Tables
+set @SQL = 'update #Tables
 	set SchemaName = [name]
 from #Tables
-	join sys.schemas on
-		SchemaID = [schema_id]
+	join ' + @DatabaseName + '.sys.schemas on
+		SchemaID = [schema_id]'
+
+exec (@SQL)
 
 
--- add square brackets to schema names that have following format: 'domain\username'
+-- add square brackets to schema names 
 update #Tables
 	set SchemaName = quotename(SchemaName)
-where SchemaName like '%\%'
 
 
--- full table names
+-- table names with schema names
 update #Tables
 	set TableNameWithSchema = SchemaName + '.' + TableName
 
@@ -124,15 +182,19 @@ update #Tables
 
 -- cycle
 declare @counter int = 1
-declare @name varchar(100)
+declare @name nvarchar(600)
 
 while @counter <= (select count(*) from #Tables) begin
+	
 	select @name = TableNameWithSchema from #Tables where ID = @counter
 
+	set @SQL = 'exec ' + @DatabaseName + '..sp_spaceused @_name'
+
 	insert into #Rating (rName, rRows, rReserved, rData, rIndex_Size, rUnused)
-	exec sp_spaceused @name
+	exec sp_executesql @stmt = @SQL, @params = N'@_name nvarchar(600)', @_name = @name
 
 	set @counter += 1
+
 end
 
 
@@ -156,7 +218,7 @@ Update #Rating
 
 
 
--- megabytes per row
+-- kilobytes per row
 update #Rating
 	set rKBperRow = cast(rTotalSize2 as decimal(16,2)) / rRows
 where rRows > 0
@@ -168,18 +230,36 @@ where rRows = 0
 
 -- database file size
 declare 
-	@DBFileSize int, 
-	@TotalDatabaseUsedMB int,
-	@AllocatedMB int,
-	@PercentUsed decimal(5,2)
-
-set @DBFileSize = (select sum(size) / 128 
-					from sys.database_files
-					where [type_desc] = 'ROWS')
+	@DBFileSize				int, 
+	@TotalDatabaseUsedMB	int,
+	@AllocatedMB			int,
+	@PercentUsed			decimal(5,2)
 
 
-set @AllocatedMB = (select sum(allocated_extent_page_count) / 128 
-					from sys.dm_db_file_space_usage)
+create table #DBFileSpace (
+	DBFileSize				int,
+	AllocatedMB				int)
+
+
+set @SQL = 'select sum(size) / 128 
+					from ' + @DatabaseName + '.sys.database_files
+					where [type_desc] = ''ROWS'''
+
+
+insert into #DBFileSpace (DBFileSize)
+exec (@SQL)
+
+
+set @SQL = 'select sum(allocated_extent_page_count) / 128 
+					from ' + @DatabaseName + '.sys.dm_db_file_space_usage'
+
+
+insert into #DBFileSpace (AllocatedMB)
+exec (@SQL)
+
+
+set @DBFileSize = (select DBFileSize from #DBFileSpace where DBFileSize is not NULL)
+set @AllocatedMB = (select AllocatedMB from #DBFileSpace where AllocatedMB is not NULL)
 
 
 set @TotalDatabaseUsedMB = (select sum(rTotalSize3) from #Rating)
@@ -204,7 +284,7 @@ if @Command = 'all' begin
 
 	-- show summary
 	select 
-		db_name()								[Database],
+		@DatabaseName							[Database],
 		count(*)								[Table_Count],
 		sum(rRows)								[Total_Rows],
 		sum(rData3)								[Database_Data_MB],
@@ -229,7 +309,7 @@ if @Command = 'all' begin
 		round(rTotalSize3,2)	[Table_Total_MB]	
 
 	from #Rating 
-	order by [Table_Total_MB], rName
+	order by [Table_Total_MB] desc, rName
 
 end
 
@@ -240,7 +320,7 @@ if @Command = 'summary' begin
 
 	-- show summary
 	select 
-		db_name()								[Database],
+		@DatabaseName							[Database],
 		count(*)								[Table_Count],
 		sum(rData3)								[Database_Data_MB],
 		sum(rIndex_Size3)						[Database_Index_MB],
@@ -255,22 +335,42 @@ end
 
 
 
--- show simplified info
-if @Command = 'table simple' begin
+-- show simple table info
+if @Command = 'tables simple' begin
 
-	-- show simple table info
 	select
 		rName					[TableName], 
 		rRows					[Row_Count],
 		round(rTotalSize3,2)	[Table_Total_MB]	
 
 	from #Rating 
-	order by [Table_Total_MB], rName
+	order by [Table_Total_MB] desc, rName
 
 end
 
 
 
+-- show table details
+if @Command = 'tables detail' begin
+		
+	select 
+		rName					[Table_Name], 
+		rRows					[Row_Count],
+		rKBperRow				[Kb_Per_Row],
+		''						[ - Blank - ],
+		round(rData3,2)			[Table_Data_MB],
+		round(rIndex_Size3,2)	[Table_Index_MB],
+		round(rUnused3,2)		[Table_Unused_MB],
+		round(rTotalSize3,2)	[Table_Total_MB]	
+
+	from #Rating 
+	order by [Table_Total_MB] desc, rName
+
+end
+
+
+
+/*
 -- log DB size to table
 if @Command = 'log' begin
 
@@ -305,7 +405,7 @@ if @Command = 'log' begin
 
 	end
 
-
+	
 	-- add record to logging table
 	insert into ServerLogsDB..[DatabaseGrowthLogger] (
 		Server_Name,
@@ -354,7 +454,9 @@ if @Command = 'log' begin
 	from #Rating
 
 
-end
+	
+
+end */
 
 set nocount off
 
