@@ -1,74 +1,63 @@
 
-create or alter procedure SpaceUsedRating (
-	@command varchar(50) = 'all') as 
+
+create or alter procedure DatabaseSpaceUsage (
+	@Command varchar(50) = 'all') as 
 	
 begin
 
-
-/********************************** SpaceUsedRating Procedure ***********************************
+/****************************************************************** DATABASE SPACE USAGE PROCEDURE **************************************************************
 
 Author: Aleksey Vitsko
 
-Purpose: For selected database shows 1) Total data / index size inside the data file 2) data / index size for each table
-Version: 1.25
+Description: For a given database, shows: 
+1) Total data / index / unused size inside the data file 
+2) data / index / unused size for each table in a database
 
-Created: August 2017
-Example: exec SpaceUsedRating 
+Version: 1.11
 
 History:
 
---> 2021-03-12 - Aleksey Vitsko - added square brackets to schema names that have following format: 'domain\username'
-
---> 2019-11-21 - Aleksey Vitsko - added ability to log database size into table ServerLogsDB..[DatabaseGrowthLogger]
-
---> 2019-11-20 - Aleksey Vitsko - added Total_Rows column to 'all' output
-
---> 2019-11-18 - Aleksey Vitsko - now @PercentUsed is calculated based on @TotalDatabaseUsedMB OR @AllocatedMB - whichever is greater
-(found that in Azure SQL database @AllocatedMB was very low compared to TotalDatabaseUsedMB)
-
---> 2019-10-07 - Aleksey Vitsko - replaced @detailed bit input variable by @command varchar(50)
-(@command supports several commands such as 'all','db summary','tables simple','tables detailed','log')
-
---> 2019-10-07 - Aleksey Vitsko - @PercentUsed is now calculated as @AllocatedMB (from sys.dm_db_file_space_usage) / @DBFileSize (total database size)
+2021-03-12 --> Aleksey Vitsko - added square brackets to schema names that have following format: 'domain\username'
+2019-11-21 --> Aleksey Vitsko - added ability to log database size into table ServerLogsDB..[DatabaseGrowthLogger]
+2019-11-20 --> Aleksey Vitsko - added "Total_Rows" column to "all" output
+2019-11-18 --> Aleksey Vitsko - now @PercentUsed is calculated based on @TotalDatabaseUsedMB OR @AllocatedMB - whichever is greater
+(found that in Azure SQL Database @AllocatedMB was very low compared to TotalDatabaseUsedMB)
+2019-10-07 --> Aleksey Vitsko - replaced @detailed bit parameter by @Command varchar(50) parameter
+(@Command supports several commands such as "all","summary","tables simple","tables detailed","log")
+2019-10-07 --> Aleksey Vitsko - @PercentUsed is now calculated as @AllocatedMB (from sys.dm_db_file_space_usage) / @DBFileSize (total database size)
 (before it was sum(data + index + unused table level) / DBFileSize)
+2019-10-07 --> Aleksey Vitsko - replaced @tables and @rating by #Tables and #Rating
+2018-07-02 --> Aleksey Vitsko - added @Detailed bit parameter
+2018-06-27 --> Aleksey Vitsko - added database file size and pct used info
+2018-06-26 --> Aleksey Vitsko - added multi-schema database support
+2018-06-25 --> Aleksey Vitsko - added "Row_Count" column and "Kb_per_Row" calculation
+2017-08-15 --> Aleksey Vitsko - created stored procedure
 
---> 2019-10-07 - Aleksey Vitsko - replaced @tables and @rating by #Tables and #Rating
-
---> 2018-07-02 - Aleksey Vitsko - added @Detailed bit parameter
-
---> 2018-06-27 - Aleksey Vitsko - added database file size and pct used info
-
---> 2018-06-26 - Aleksey Vitsko - added multi-schema database support
-
---> 2018-06-25 - Aleksey Vitsko - added Rows and Kb_per_Row calculation
-
-
-************************************************************************************************/
-
+*****************************************************************************************************************************************************************/
 
 set nocount on
 
 
--- pre-check
-if @command not in ('all','db summary','tables simple','tables detail','log') begin
+-- @Command parameter validation
+if @Command not in ('all','summary','tables simple','tables detail','log') begin
 	
 	print '
-Supplied @command not supported!
+Supplied @Command value is not supported!
 
-Supported command list:
+Supported commands list:
 
 "all"
-"db summary"
+"summary"
 "tables simple"
 "tables detail"
 "log"
-
 '
 
 	return
 end
 
 
+-- temp tables
 create table #Tables  (
 	ID						int identity (1,1),
 	TableName				varchar(100),
@@ -80,27 +69,27 @@ create table #Tables  (
 
 
 create table #rating (
-	rID				int identity primary key,
-	rName			varchar(100),
+	rID						int identity primary key,
+	rName					varchar(100),
 	
-	rRows			bigint,
-	rKBperRow		decimal(10,2),
+	rRows					bigint,
+	rKBperRow				decimal(10,2),
 	
-	rReserved		varchar(50),
+	rReserved				varchar(50),
 	
-	rData			varchar(50),
-	rIndex_Size		varchar(50),
-	rUnused			varchar(50),
+	rData					varchar(50),
+	rIndex_Size				varchar(50),
+	rUnused					varchar(50),
 	
-	rData2			bigint null,
-	rIndex_Size2	bigint null,
-	rUnused2		bigint null,			
-	rTotalSize2		bigint null,
+	rData2					bigint null,
+	rIndex_Size2			bigint null,
+	rUnused2				bigint null,			
+	rTotalSize2				bigint null,
 
-	rData3			decimal(16,2) null,
-	rIndex_Size3	decimal(16,2) null,
-	rUnused3		decimal(16,2) null,
-	rTotalSize3		decimal(16,2) null)
+	rData3					decimal(16,2) null,
+	rIndex_Size3			decimal(16,2) null,
+	rUnused3				decimal(16,2) null,
+	rTotalSize3				decimal(16,2) null)
 
 
 
@@ -208,13 +197,12 @@ end
 
 
 
-------------------------------- Show Data ---------------------------------------
-
+--------------------------------------------------------------- Show Data ----------------------------------------------------------------
 
 -- show all
-if @command = 'all' begin
+if @Command = 'all' begin
 
-	-- show db summary
+	-- show summary
 	select 
 		db_name()								[Database],
 		count(*)								[Table_Count],
@@ -247,10 +235,10 @@ end
 
 
 
--- show db summary
-if @command = 'db summary' begin
+-- show summary
+if @Command = 'summary' begin
 
-	-- show db summary
+	-- show summary
 	select 
 		db_name()								[Database],
 		count(*)								[Table_Count],
@@ -267,9 +255,8 @@ end
 
 
 
-
 -- show simplified info
-if @command = 'table simple' begin
+if @Command = 'table simple' begin
 
 	-- show simple table info
 	select
@@ -283,11 +270,9 @@ if @command = 'table simple' begin
 end
 
 
--- select * from ServerLogsDB..[DatabaseGrowthLogger]
-
 
 -- log DB size to table
-if @command = 'log' begin
+if @Command = 'log' begin
 
 	declare 
 		@LastLogDate		smalldatetime,
