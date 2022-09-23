@@ -7,8 +7,13 @@ create or alter procedure VirtualFileStats as begin
 
 /********************************************************** Virtual File Stats Procedure **********************************************************
 
-This query was taken directly from Brent Ozar's website and turned into stored procedure for convenience
-Shows virtual IO stats (reads, writes, GB read, written, average reads, writes, etc.) for database and log files
+Description:
+
+This query was taken directly from Brent Ozar's website and turned into stored procedure for convenience. 
+Shows virtual IO stats (reads, writes, total GB read, total GB written, average reads in milliseconds, average writes in milliseconds, etc.) 
+for database data and log files.
+
+https://www.brentozar.com/blitz/slow-storage-reads-writes/
 
 
 ***************************************************************************************************************************************************/
