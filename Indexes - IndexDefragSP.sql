@@ -1,5 +1,4 @@
 
--- use [master]
 
 create or alter procedure IndexDefragSP (
 	@TableSizeOver						int = 0,
@@ -23,6 +22,9 @@ create or alter procedure IndexDefragSP (
 	@DoNotRebuildIndexOver_MB			int = 0,									-- do not rebuild indexes that are bigger than N megabytes in size (if you do not want to mess with big indexes)
 	@MaxDOP								tinyint = 0,								-- max degree of paralellism
 
+	@Top								int = 0,									-- (limit the number of indexes to defragment per 1 procedure execution (based on Index Size MB descending)
+																					-- if @Top = 0 (default) - all indexes will be defragmented (no limit). Example: If you want defragment 2 biggest indexes per 1 procedure run, set @Top = 2, etc.
+
 	@GenerateReportOnly					tinyint = 1,								-- by default, procedure will only be generating reports (no actions will be executed) 
 																					-- if you want rebuild/reogranizes to be executed by SP, set @GenerateReportOnly = 1
 
@@ -35,43 +37,39 @@ create or alter procedure IndexDefragSP (
 as begin
 set nocount on
 
-/****************************************** INFO **********************************************************
+
+/**************************************************************************** INDEX DEFRAG SP ***************************************************************************************************
 
 Author: Aleksey Vitsko
-Created: December 2017
 
-Version: 1.06
+Version: 1.08
+
+Description: by default, detects indexes with high fragmentation levels, suggests SQL statements that can be used to fix fragmentation
+If @GenerateReportOnly = 0, procedure also executes these SQL statements and sends report over email
+
 
 History:
 
-2020-05-11 - Aleksey Vitsko
-Added @PageCompressionDBList parameter, user-supplied list of databases, where you want to apply "data_compression = page" option during REBUILD operations
-
-2020-05-10 - Aleksey Vitsko
-@GenerateReportOnly	will be 1 by default (no actions executed)
-Also added input parameters validation
-
-2020-05-10 - Aleksey Vitsko
-@TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases
-@MaxDOP will be 0 by default 
-
-2020-05-10 - Aleksey Vitsko
-Added @DoNotRebuildIndexOver_MB parameter
+2022-10-19 - Aleksey Vitsko - when calling sp_spaceused, properly handle table names where ' symbol is present in table name 
+2022-10-19 - Aleksey Vitsko - when using sp_spaceused to obtain space used information for a table, supply [schema name] + [table name] into sp_spaceused
+2022-10-07 - Aleksey Vitsko - change order of columns in @GenerateReportOnly = 1 mode, added Index Name
+2022-10-07 - Aleksey Vitsko - added @Top parameter (default = 0 means no limit). Limits the number of indexes to defragment per 1 procedure execution
+2020-05-11 - Aleksey Vitsko - added @PageCompressionDBList parameter, user-supplied list of databases, where you want to apply "data_compression = page" option during REBUILD operations
+2022-05-10 - Aleksey Vitsko - added input parameters validation
+2020-05-10 - Aleksey Vitsko - @GenerateReportOnly will be 1 by default (no actions executed)
+2020-05-10 - Aleksey Vitsko - @TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases; @MaxDOP will be 0 by default 
+2020-05-10 - Aleksey Vitsko - Added @DoNotRebuildIndexOver_MB parameter
 If size (megabytes) of the index that requires REBUILD, exceeds specified value (@DoNotRebuildIndexOver_MB, default = 0 (no limit)) - it will be ignored and will NOT be rebuilt
 This way we can avoid rebuilding some really big indexes, and its consequences (possible data/log file growth, excessive transaction log backups, lots of IO in Availability Groups, etc)
+2020-04-26 - Aleksey Vitsko - when @GenerateReportOnly = 1, report will show additional column - index size in megabytes (IndexSizeMB)
+2018-11-09 - Aleksey Vitsko - update/fix: Added support for databases that have tables in schemas that are not dbo
+2017-12-15 - Aleksey Vitsko - created procedure
 
-2020-04-26 - Aleksey Vitsko
-When @GenerateReportOnly = 1, report will show additional column - Index Size in Megabytes (IndexSizeMB)
+***************************************************************************************************************************************************************************************************/
 
-2018-11-09 - Aleksey Vitsko
-update/fix: Added support for databases that have tables in schemas that are not dbo
-
-
-
-**********************************************************************************************************/
 
 /*
- -- debug arguments
+ -- uncomment above when debugging
 declare 
 	@TableSizeOver						int = 10,
 	@TableSizeUnder						int = 50,
@@ -93,7 +91,6 @@ declare
 	@EmailProfileName					varchar(100) = 'Server email alerts',
 	@toList								varchar(500) = 'email@domain.com'
 */
-
 
 
 
@@ -137,7 +134,6 @@ end
 
 
 
-
 -- table size limits
 if @tableSizeOver > @tableSizeUnder begin
 	print 'LOWER table size limit can not be higher then the UPPER size limit'
@@ -162,6 +158,12 @@ if @GenerateReportOnly = 1 begin
 	set @SendReportEmail = 0
 end
 
+
+-- top parameter can't be negative number
+if @Top < 0 begin
+	print '@Top parameter can''t be negative number (should be >= 0)'
+	return
+end
 
 
 
@@ -468,9 +470,14 @@ RAISERROR ( @ProgressText, 0, 1 ) WITH NOWAIT;
 if object_id('tempdb..#Tables') is not null begin drop table #Tables end
 
 create table #Tables (
-	ID				int identity (1,1),
-	tObject_ID		bigint,
-	tTableName		varchar(100))
+	ID							int identity (1,1),
+	tObject_ID					bigint,
+	
+	tSchemaName					varchar(250),
+	tTableName					varchar(250),
+
+	tTableNameWithSchema		varchar(500)
+	)
 
 
 -- table size list
@@ -578,7 +585,9 @@ create table #IndexPhysicalStats (
 
 ---------------------------------------- DB Cursor Logic --------------------------------------------
 
-declare @counter int = 1
+declare 
+	@counter int = 1,
+	@Symbol varchar(5) = ''''
 
 
 declare DB_List cursor local fast_forward for
@@ -602,22 +611,26 @@ while @@FETCH_STATUS = 0 begin
 	delete from #tables
 	delete from #TableSizesMB
 
-	set @GetTables = 'select case s.[name] when ''dbo'' then t.[name] else s.[name] + ''.'' + t.[name] end, [object_id] from ' + @DBName + '.sys.tables t join ' + @DBName + '.sys.schemas s on t.schema_id = s.schema_id'
+	set @GetTables = 'select s.[name], t.[name], [object_id] from ' + @DBName + '.sys.tables t join ' + @DBName + '.sys.schemas s on t.schema_id = s.schema_id'
 
-	insert into #Tables (tTableName, tObject_ID)
+	insert into #Tables (tSchemaName, tTableName, tObject_ID)
 	exec (@GetTables)
+	
+	-- table name with schema
+	update #Tables
+		set tTableNameWithSchema = quotename(tSchemaName) + '.' + quotename(tTableName)
+
 
 	-- get space used information for each individual table
-	
 	while @counter <= (select max(ID) from #tables) begin
 	
-		select @TableName = tTableName 
+		select @TableName = tTableNameWithSchema
 		from #Tables 
 		where ID = @counter
 
 		--print @TableName
 
-		set @GetSpaceUsed = 'exec ' + @DBName + '.dbo.sp_spaceused ' + quotename(@TableName)
+		set @GetSpaceUsed = 'exec ' + @DBName + '.dbo.sp_spaceused ''' + replace(@TableName,@Symbol,@Symbol + @Symbol) + ''''
 
 		--print @GetSpaceUsed
 
@@ -880,6 +893,25 @@ end
 
 
 
+-- apply Top (limit the number of indexes to defragment per 1 procedure execution)
+if @Top > 0 begin
+
+	create table #IndexesSortedBySize (
+		ID					int,
+		IndexSize			decimal(16,2),
+		RowNum				int)
+
+	insert into #IndexesSortedBySize (ID, IndexSize, RowNum)
+	select 
+		iID, 
+		iIndexSizeMBBefore, 
+		row_number () over (order by iIndexSizeMBBefore desc) 
+	from #Indexes
+
+	delete from #Indexes
+	where iID in (select ID from #IndexesSortedBySize where RowNum > @Top)
+
+end
 
 
 
@@ -890,20 +922,21 @@ if @GenerateReportOnly = 1 begin
 
 	select 
 		iDBName						[DatabaseName],
-		iDB_ID						[DatabaseID],
+		--iDB_ID						[DatabaseID],
 		iTableName					[TableName],
-		iObject_ID					[TableObjectID],
+		--iObject_ID					[TableObjectID],
 		iTableTotalSizeBefore		[TableTotalSizeMB],
 		iIndex_ID					[IndexID],
+		iIndexName					[IndexName],
 		iType						[IndexType],
+		iIndexSizeMBBefore			[IndexSizeMB],
+		iPageCountBefore			[PageCount],
 		iFragmentCountBefore		[FragmentCount],
 		iFragmentationPctBefore		[FragmentationPercent],
-		iPageCountBefore			[PageCount],
-		iIndexSizeMBBefore			[IndexSizeMB],
 		iAction						[Action],
 		iStatement					[Statement]
 	from #Indexes
-	order by iDBName, iTableTotalSizeBefore, iIndexSizeMBBefore
+	order by iDBName, iIndexSizeMBBefore desc
 
 end		-- end of Generate Report Only logic
 
@@ -1038,22 +1071,27 @@ while @@FETCH_STATUS = 0 begin
 	delete from #tables
 	delete from #TableSizesMB
 
-	set @GetTables = 'select case s.[name] when ''dbo'' then t.[name] else s.[name] + ''.'' + t.[name] end, [object_id] from ' + @DBName + '.sys.tables t join ' + @DBName + '.sys.schemas s on t.schema_id = s.schema_id'
+	set @GetTables = 'select s.[name], t.[name], [object_id] from ' + @DBName + '.sys.tables t join ' + @DBName + '.sys.schemas s on t.schema_id = s.schema_id'
 
-	insert into #Tables (tTableName, tObject_ID)
+	insert into #Tables (tSchemaName, tTableName, tObject_ID)
 	exec (@GetTables)
 
+
+	-- table names with schema
+	update #Tables
+		set tTableNameWithSchema = quotename(tSchemaName) + '.' + quotename(tTableName)
+
+
 	-- get space used information for each individual table
-	
 	while @counter <= (select max(ID) from #tables) begin
 	
-		select @TableName = tTableName 
+		select @TableName = tTableNameWithSchema 
 		from #Tables 
 		where ID = @counter
 
 		--print @TableName
 
-		set @GetSpaceUsed = 'exec ' + @DBName + '.dbo.sp_spaceused ' + quotename(@TableName)
+		set @GetSpaceUsed = 'exec ' + @DBName + '.dbo.sp_spaceused ''' + replace(@TableName,@Symbol,@Symbol + @Symbol) + ''''
 
 		--print @GetSpaceUsed
 
