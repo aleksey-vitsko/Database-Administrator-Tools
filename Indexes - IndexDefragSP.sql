@@ -1,11 +1,11 @@
 
 
 create or alter procedure IndexDefragSP (
-	@TableSizeOver						int = 0,
-	@TableSizeUnder						int = 1000000000,
+	@TableSizeOver						int = 0,									-- ignore tables whose size in Megabytes is smaller than specified value
+	@TableSizeUnder						int = 1000000000,							-- ignore tables whose size in Megabytes is bigger than specified value
 	
-	@ReorganizeThreshold				decimal(5,2) = 10,
-	@RebuildThreshold					decimal(5,2) = 30,
+	@ReorganizeThreshold				decimal(5,2) = 10,							-- for indexes whose fragmentation level >= @ReorganizeThreshold and smaller than @RebuildThreshold, run REORGANIZE operation(s)
+	@RebuildThreshold					decimal(5,2) = 30,							-- for indexes whose fragmentation level >= @RebuildThreshold, run REBUILD operation(s)
 	
 	@TargetDB							varchar(250) = 'user',						-- list of databases where indexes will be evaluated (options: "all"; "user"; "system"; "even/odd")
 																					-- or a user-specified list of databases comma/semicolon/space-separated ("database1, database2")
@@ -42,25 +42,27 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.08
+Version: 1.11
 
-Description: by default, detects indexes with high fragmentation levels, suggests SQL statements that can be used to fix fragmentation
+Description: by default (@GenerateReportOnly = 1), detects indexes with high fragmentation levels, suggests SQL statements that can be used to fix fragmentation.
 If @GenerateReportOnly = 0, procedure also executes these SQL statements and sends report over email
 
 
 History:
 
+2022-10-21 - Aleksey Vitsko - when calculating space used after defrag, delete databases from the list (#Databases), whose indexes were not touched
+2022-10-21 - Aleksey Vitsko - delete databases from the list (#Databases) that have either no tables or tables with zero rows to avoid errors later in the script
+2022-10-21 - Aleksey Vitsko - replace @databases table variable by #Databases (for easier debugging)
+2022-10-21 - Aleksey Vitsko - check if table #IndexesSortedBySize exists before creating it (for easier debugging)
 2022-10-19 - Aleksey Vitsko - when calling sp_spaceused, properly handle table names where ' symbol is present in table name 
 2022-10-19 - Aleksey Vitsko - when using sp_spaceused to obtain space used information for a table, supply [schema name] + [table name] into sp_spaceused
 2022-10-07 - Aleksey Vitsko - change order of columns in @GenerateReportOnly = 1 mode, added Index Name
 2022-10-07 - Aleksey Vitsko - added @Top parameter (default = 0 means no limit). Limits the number of indexes to defragment per 1 procedure execution
 2020-05-11 - Aleksey Vitsko - added @PageCompressionDBList parameter, user-supplied list of databases, where you want to apply "data_compression = page" option during REBUILD operations
-2022-05-10 - Aleksey Vitsko - added input parameters validation
+2020-05-10 - Aleksey Vitsko - added input parameters validation
 2020-05-10 - Aleksey Vitsko - @GenerateReportOnly will be 1 by default (no actions executed)
 2020-05-10 - Aleksey Vitsko - @TargetDB will be now 'user' by default, which means procedure will evaluate indexes in all user databases; @MaxDOP will be 0 by default 
-2020-05-10 - Aleksey Vitsko - Added @DoNotRebuildIndexOver_MB parameter
-If size (megabytes) of the index that requires REBUILD, exceeds specified value (@DoNotRebuildIndexOver_MB, default = 0 (no limit)) - it will be ignored and will NOT be rebuilt
-This way we can avoid rebuilding some really big indexes, and its consequences (possible data/log file growth, excessive transaction log backups, lots of IO in Availability Groups, etc)
+2020-05-10 - Aleksey Vitsko - added @DoNotRebuildIndexOver_MB parameter - do not run REBUILD operation on indexes whose size exceeds specified value in Megabytes
 2020-04-26 - Aleksey Vitsko - when @GenerateReportOnly = 1, report will show additional column - index size in megabytes (IndexSizeMB)
 2018-11-09 - Aleksey Vitsko - update/fix: Added support for databases that have tables in schemas that are not dbo
 2017-12-15 - Aleksey Vitsko - created procedure
@@ -229,7 +231,9 @@ set @Start = getdate()
 
 
 -- database list
-declare @databases table (
+if object_id('tempdb..#Databases') is not NULL begin drop table #Databases end
+
+create table #Databases (
 	DBName				varchar(150),
 	dDB_ID				int,
 	
@@ -244,7 +248,7 @@ declare @databases table (
 
 -- all
 if @TargetDB = 'all' begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] not in ('tempdb')
@@ -253,7 +257,7 @@ end
 
 -- user
 if @TargetDB in ('user','userdb') begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] not in ('tempdb','master','model','msdb')
@@ -262,7 +266,7 @@ end
 
 -- system
 if @TargetDB in ('system','systemdb') begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] in ('master','model','msdb')
@@ -271,7 +275,7 @@ end
 
 -- even
 if @TargetDB in ('even','evendb') begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] not in ('tempdb','master','model','msdb')
@@ -281,7 +285,7 @@ end
 
 -- odd
 if @TargetDB in ('odd','odddb') begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] not in ('tempdb','master','model','msdb')
@@ -292,7 +296,7 @@ end
 
 -- specific db
 if @TargetDB not in ('all','user','userdb','system','systemdb','even','evendb','odd','odddb') and exists (select * from sys.databases where [name] = @TargetDB) begin
-	insert into @databases (dbName)
+	insert into #Databases (dbName)
 	select [name]
 	from sys.databases
 	where	[name] = @TargetDB
@@ -319,8 +323,8 @@ if @TargetDB like '%,%' or @TargetDB like '% %' or @TargetDB like '%;%' begin
 		end
 
 		if @char in (' ',',',';') begin
-			if exists (select * from sys.databases where [name] = @DBNameToInsert and state_desc = 'ONLINE') and not exists (select * from @databases where DBName = @DBNameToInsert) begin 
-				insert into @databases (DBName)
+			if exists (select * from sys.databases where [name] = @DBNameToInsert and state_desc = 'ONLINE') and not exists (select * from #Databases where DBName = @DBNameToInsert) begin 
+				insert into #Databases (DBName)
 				select @DBNameToInsert
 			end	
 
@@ -328,8 +332,8 @@ if @TargetDB like '%,%' or @TargetDB like '% %' or @TargetDB like '%;%' begin
 		end
 
 		if @Increment = @StringLength begin
-			if exists (select * from sys.databases where [name] = @DBNameToInsert and state_desc = 'ONLINE') and not exists (select * from @databases where DBName = @DBNameToInsert) begin 
-				insert into @databases (DBName)
+			if exists (select * from sys.databases where [name] = @DBNameToInsert and state_desc = 'ONLINE') and not exists (select * from #Databases where DBName = @DBNameToInsert) begin 
+				insert into #Databases (DBName)
 				select @DBNameToInsert
 			end	
 		end
@@ -382,7 +386,7 @@ if @ExcludeDBList is not NULL begin
 	end
 
 	delete d
-	from @databases d
+	from #Databases d
 		join @DatabasesExclude on
 			dbName = DBNameExclude
 
@@ -434,7 +438,7 @@ if @PageCompressionDBList is not NULL begin
 
 	update d
 		set DBPageCompression = 1
-	from @databases d
+	from #Databases d
 		join #DatabasesPageCompression on
 			dbName = DBNameCompression
 
@@ -444,9 +448,9 @@ end
 
 
 -- get database id
-update @Databases
+update #Databases
 	set dDB_ID = database_id
-from @Databases
+from #Databases
 	join sys.databases on
 		DBName = [name]
 
@@ -592,7 +596,7 @@ declare
 
 declare DB_List cursor local fast_forward for
 select dbName, dDB_ID
-from @databases
+from #Databases
 order by dbName
 
 open DB_List
@@ -668,7 +672,7 @@ while @@FETCH_STATUS = 0 begin
 
 
 	-- calculate database total size
-	update @databases
+	update #Databases
 		set DBSizeMB_Before = (select sum(tsTotal_Size_MB) from #TableSizesMB)
 	where	DBName = @DBname
 
@@ -749,6 +753,17 @@ end
 
 close DB_List
 deallocate DB_List
+
+
+
+-- delete databases that have tables, but zero data (no rows) from the list
+delete from #Databases
+where DBSizeMB_Before = 0
+
+-- delete databases that have no tables from the list
+delete from #Databases
+where DBSizeMB_Before is NULL
+
 
 
 /*
@@ -880,7 +895,7 @@ if @PageCompressionDBList is not NULL begin
 	update #Indexes
 		set iStatement = replace(iStatement,'with (','with ( DATA_COMPRESSION = PAGE, ')
 	from #Indexes
-		join @databases on
+		join #Databases on
 			iDBName = DBName
 			and DBPageCompression = 1
 	where	iAction = 'REBUILD'
@@ -895,6 +910,8 @@ end
 
 -- apply Top (limit the number of indexes to defragment per 1 procedure execution)
 if @Top > 0 begin
+
+	if object_id('tempdb..#IndexesSortedBySize') is not NULL begin drop table #IndexesSortedBySize end
 
 	create table #IndexesSortedBySize (
 		ID					int,
@@ -1046,13 +1063,17 @@ set @ProgressText = '
 RAISERROR (@ProgressText, 0, 1) with NOWAIT
 
 
+-- delete databases from the list (#Databases), whose indexes were not touched
+delete from #Databases where DBName not in (select iDBName from #Indexes)
+
+
 delete from #IndexPhysicalStats
 --set @counter = @counter
 
 
 declare DB_List2 cursor local fast_forward for
 select dbName, dDB_ID
-from @databases
+from #Databases
 order by dbName
 
 open DB_List2
@@ -1129,7 +1150,7 @@ while @@FETCH_STATUS = 0 begin
 
 	
 	-- calculate database total size AFTER defrag
-	update @databases
+	update #Databases
 		set DBSizeMB_After = (select sum(tsTotal_Size_MB) from #TableSizesMB)
 	where	DBName = @DBname
 
@@ -1197,7 +1218,7 @@ deallocate DB_List2
 
 
 -- calculate database size reduction
-update @databases
+update #Databases
 	set ReducedBy = DBSizeMB_Before - DBSizeMB_After,
 		ReductionPct = ((DBSizeMB_Before - DBSizeMB_After) / DBSizeMB_Before) * 100
 
@@ -1310,7 +1331,7 @@ select
 	DBSizeMB_After,
 	ReducedBy,
 	ReductionPct
-from @databases
+from #Databases
 order by [DBNAME]
 
 
