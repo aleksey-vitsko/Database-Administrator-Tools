@@ -10,7 +10,7 @@ create or alter procedure DatabaseSpaceUsage (
 
 Author: Aleksey Vitsko
 
-Version: 1.15
+Version: 1.16
 
 Description: For a given database, shows: 
 1) Total data / index / unused size inside the data file 
@@ -29,6 +29,7 @@ Description: For a given database, shows:
 
 History:
 
+2022-11-30 --> Aleksey Vitsko - uncomment the logging part, corrections to make it work (full refactor yet to come) 
 2022-09-19 --> Aleksey Vitsko - made "tables detail" command work
 2022-09-19 --> Aleksey Vitsko - implement @DatabaseName parameter, and it's validation
 2022-09-19 --> Aleksey Vitsko - comment out the logging part, will refactor it later
@@ -370,7 +371,7 @@ end
 
 
 
-/*
+
 -- log DB size to table
 if @Command = 'log' begin
 
@@ -386,7 +387,7 @@ if @Command = 'log' begin
 
 	set @LastLogDate = (select max(Date_Full) 
 						from ServerLogsDB..[DatabaseGrowthLogger] 
-						where [Database_Name] = db_name())
+						where [Database_Name] = @DatabaseName)
 
 
 	-- if database size was logged previously (if table has any records for given database)
@@ -396,7 +397,7 @@ if @Command = 'log' begin
 			@LastAllocatedMB = Database_Allocated_MB,
 			@LastPercentUsed = Percent_Used
 		from ServerLogsDB..[DatabaseGrowthLogger] 
-		where	[Database_Name] = db_name()
+		where	[Database_Name] = @DatabaseName
 				and Date_Full = @LastLogDate
 
 		set @HoursDiff = datediff(hour,@LastLogDate,getdate())
@@ -431,7 +432,7 @@ if @Command = 'log' begin
 		Percent_Used_Delta)
 	select 
 		@@ServerName,							-- Server_Name
-		db_name(),								-- [Database_Name]
+		@DatabaseName,							-- [Database_Name]
 
 		getdate(),								-- Date_Full
 		datepart(dw,getdate()),					-- Day_Of_Week
@@ -456,7 +457,7 @@ if @Command = 'log' begin
 
 	
 
-end */
+end 
 
 set nocount off
 
