@@ -7,13 +7,13 @@ https://dba.stackexchange.com/questions/266982/script-to-monitor-database-growth
 
 
 
-There is a stored procedure called `SpaceUsedRating`:
+There is a stored procedure called `DatabaseSpaceUsage`:
 
 https://github.com/aleksey-vitsko/Database-Administrator-Tools
 
-When you execute it `exec SpaceUsedRating` without any parameters, it will show space usage stats inside a given database
+When you execute it `exec DatabaseSpaceUsage` without any parameters, it will show space usage details inside a given database
 
-[![SpaceUsedRating][1]][1]
+[![DatabaseSpaceUsage][1]][1]
 
 This procedure can also be called with parameter @command = 'log'
 
@@ -21,7 +21,7 @@ This procedure can also be called with parameter @command = 'log'
 
 When called with `@command = 'log'` parameter, this SP will log result to logging table `DatabaseGrowthLogger` at database `ServerLogsDB` (DB and table need to be created)
 
-Here is the script for creating logging table
+Here is the script for creating the logging table:
 
 <pre>
 USE [ServerLogsDB]
@@ -72,21 +72,21 @@ GO
 </pre>
 
 
-After you create `ServerLogsDB..DatabaseGrowthLogger` database and table, and deploy stored procedure `SpaceUsedRating` to all databases you want to monitor growth for, you need to schedule a job that will run once a day, for example at 23:58 UTC, and run below t-sql:
+After you create `ServerLogsDB..DatabaseGrowthLogger` database and table, and deploy (create) stored procedure `DatabaseSpaceUsage` to any database (user or system), you need to schedule a job that will run once a day, for example at 23:58 UTC, and run below T-SQL:
 
-    exec Database1..SpaceUsedRating @command = 'log' 
-    exec Database2..SpaceUsedRating @command = 'log'
+    exec DatabaseSpaceUsage @Command = 'log', @DatabaseName = 'Database1'
+    exec DatabaseSpaceUsage @Command = 'log', @DatabaseName = 'Database2'
     ...
-    -- create SP in whatever number of databases you need to monitor growth
+    -- in @DatabaseName parameter, supply database names of databases for which you want to monitor growth
 
 This will log daily growth of your databases, and when you check `ServerLogsDB..DatabaseGrowthLogger` table, it will look similar to below:
 
-[![Database Growth Rate][2]][2]
+[![Data and Index Growth Rate][2]][2]
 
 
 Looking at logging table, you will have an idea how much data inside your database has grown over time
 
-Finally, you can add a step to the job, that will read last row from `ServerLogsDB..DatabaseGrowthLogger` and send it by email using 'sp_send_dbmail' procedure
+Finally, you can add a step to the job, that will read last row from `ServerLogsDB..DatabaseGrowthLogger` and send it by email using `sp_send_dbmail` procedure
 
   [1]: https://i.stack.imgur.com/V3PQ5.png
   [2]: https://i.stack.imgur.com/yUY9H.png
