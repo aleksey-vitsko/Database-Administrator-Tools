@@ -6,13 +6,14 @@ create or alter procedure ServerSpaceUsage as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.04
+Version: 1.05
 
 Description: this procedure shows size information for each database on the instance
 Shows total size and total space used for each data file / log file for each database
 
 History
 
+2023-08-04 --> Aleksey Vitsko - increased "dType_Desc" to nvarchar(60) to match sys.master_files and resolve error in Azure SQL Managed Instance
 2022-09-08 --> Aleksey Vitsko - added a warning for OFFLINE databases (unable to get data/log file fullness)
 2022-09-08 --> Aleksey Vitsko - updated column names in the output for consistency
 2022-09-08 --> Aleksey Vitsko - properly show log file size and total database size for OFFLINE state databases 
@@ -33,8 +34,8 @@ if object_ID('TempDB..#Results') is not NULL begin drop table #Results end
 create table #DatabasesAndFiles (
 	dDB_ID						int,
 	dDB_Name					varchar(100),
-	dType_Desc					varchar(5),
-	dPhysical_Path				varchar(200),
+	dType_Desc					nvarchar(60),
+	dPhysical_Path				nvarchar(260),
 	dLogical_FileName			varchar(100),
 
 	dSizeMB						decimal(16,2),
@@ -79,7 +80,8 @@ select
 	database_id,
 	[type_desc], 
 	physical_name, 
-	[name], size / 128, 
+	[name], 
+	size / 128, 
 	case max_size 
 		when -1 then -1 
 		else cast(max_size as bigint) / 128 
