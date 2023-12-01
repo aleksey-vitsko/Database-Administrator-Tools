@@ -10,7 +10,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.10
+Version: 1.11
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +19,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
 --> 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
 --> 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
 --> 2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
@@ -69,12 +70,13 @@ declare @database_permissions table (
 	column_name				varchar(150))
 
 
-declare @AD_Groups table (
-	tAccountName				varchar(150),
-	tType						varchar(50),
-	tPrivilege					varchar(50),
-	tMappedLoginName			varchar(150),
-	tPermissionPath				varchar(150))
+declare @login_token table (
+	tName					varchar(128), 
+	tType					varchar(128),
+	tUsage					varchar(128)
+
+	primary key (tName, tType, tUsage)
+	)
 
 
 -- result table that will contain all statements
@@ -113,29 +115,38 @@ declare @Result_temp table (
 
 
 
-	-- AD group membership
-	if (select [type] from sys.server_principals where [name] = @LoginName) = 'U' begin
+	-- login token
+	begin try
+	execute as login = @LoginName
 
-		insert into @AD_Groups (tAccountName, tType, tPrivilege, tMappedLoginName, tPermissionPath)
-		exec xp_logininfo @LoginName,'all'
+		insert into @login_token (tName, tType, tUsage)
+		select
+			distinct [name], [type], usage
+		from sys.login_token
+		where	principal_id <> 0
+				and [name] <> @LoginName
+				and [type] <> 'SERVER ROLE'
 
-		if exists (select * from @AD_Groups where tPermissionPath is not NULL) begin
+	revert
+	end try
+	begin catch
+		print ERROR_MESSAGE()
+	end catch
 
-			insert into @Result (SQLStatement)
-			select '-- Active Directory group login membership:'
-		 
-			insert into @Result (SQLStatement)
-			select '-- [' + @LoginName + '] is a member of AD group: [' + tPermissionPath + ']'
-			from @AD_Groups
-			where tPermissionPath is not NULL
-			order by tPermissionPath
+	if (select count(*) from @login_token) > 0 begin
 
-			insert into @Result (SQLStatement)
-			select ''
+		insert into @Result (SQLStatement)
+		select '-- Group membership:' 
 
-		end
+		insert into @Result (SQLStatement)
+		select '-- ' + quotename(@LoginName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) --+ ' -- (' + lower(usage) + ')'
+		from @login_token
+		
+		insert into @Result (SQLStatement)
+		select ''
 
 	end
+
 
 	-- get sid, principal_id of login
 	select	@sid = [sid],
@@ -169,7 +180,7 @@ declare @Result_temp table (
 		select 'alter server role [sysadmin] add member [' + @LoginName + ']'
 
 		insert into @Result (SQLStatement)
-		select '-- !!! WARNING: login [' + @LoginName + ']' + ' is a member of SYSADMIN server role'
+		select '-- !!! WARNING: [' + @LoginName + ']' + ' is a member of SYSADMIN server role'
 
 		insert into @Result (SQLStatement)
 		select '-- !!! WARNING: [' + @LoginName + ']' + ' can do everything on this instance, you can ignore below permissions'
