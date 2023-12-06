@@ -10,7 +10,7 @@ create or alter procedure DatabaseSpaceUsage (
 
 Author: Aleksey Vitsko
 
-Version: 1.16
+Version: 1.17
 
 Description: For a given database, shows: 
 1) Total data / index / unused size inside the data file 
@@ -29,6 +29,7 @@ Description: For a given database, shows:
 
 History:
 
+2023-12-05 --> Aleksey Vitsko - add square brackets for database names like "A.B.C" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/2 )
 2022-11-30 --> Aleksey Vitsko - uncomment the logging part, corrections to make it work (full refactor yet to come) 
 2022-09-19 --> Aleksey Vitsko - made "tables detail" command work
 2022-09-19 --> Aleksey Vitsko - implement @DatabaseName parameter, and it's validation
@@ -39,12 +40,9 @@ History:
 2021-03-12 --> Aleksey Vitsko - added square brackets to schema names that have following format: 'domain\username'
 2019-11-21 --> Aleksey Vitsko - added ability to log database size into table ServerLogsDB..[DatabaseGrowthLogger]
 2019-11-20 --> Aleksey Vitsko - added "Total_Rows" column to "all" output
-2019-11-18 --> Aleksey Vitsko - now @PercentUsed is calculated based on @TotalDatabaseUsedMB OR @AllocatedMB - whichever is greater
-(found that in Azure SQL Database @AllocatedMB was very low compared to TotalDatabaseUsedMB)
-2019-10-07 --> Aleksey Vitsko - replaced @detailed bit parameter by @Command varchar(50) parameter
-(@Command supports several commands such as "all","summary","tables simple","tables detailed","log")
-2019-10-07 --> Aleksey Vitsko - @PercentUsed is now calculated as @AllocatedMB (from sys.dm_db_file_space_usage) / @DBFileSize (total database size)
-(before it was sum(data + index + unused table level) / DBFileSize)
+2019-11-18 --> Aleksey Vitsko - now @PercentUsed is calculated based on @TotalDatabaseUsedMB OR @AllocatedMB - whichever is greater (found that in Azure SQL Database @AllocatedMB was very low compared to TotalDatabaseUsedMB)
+2019-10-07 --> Aleksey Vitsko - replaced @detailed bit parameter by @Command varchar(50) parameter (@Command supports several commands such as "all","summary","tables simple","tables detailed","log")
+2019-10-07 --> Aleksey Vitsko - @PercentUsed is now calculated as @AllocatedMB (from sys.dm_db_file_space_usage) / @DBFileSize (total database size) (before it was sum(data + index + unused table level) / DBFileSize)
 2019-10-07 --> Aleksey Vitsko - replaced @tables and @rating by #Tables and #Rating
 2018-07-02 --> Aleksey Vitsko - added @Detailed bit parameter
 2018-06-27 --> Aleksey Vitsko - added database file size and pct used info
@@ -153,7 +151,7 @@ create table #rating (
 set @SQL = 'select 
 	[name],
 	[schema_id]
-from ' + @DatabaseName + '.sys.tables
+from ' + quotename(@DatabaseName) + '.sys.tables
 order by name'
 
 insert into #Tables (TableName, SchemaID)
@@ -164,7 +162,7 @@ exec (@SQL)
 set @SQL = 'update #Tables
 	set SchemaName = [name]
 from #Tables
-	join ' + @DatabaseName + '.sys.schemas on
+	join ' + quotename(@DatabaseName) + '.sys.schemas on
 		SchemaID = [schema_id]'
 
 exec (@SQL)
@@ -189,7 +187,7 @@ while @counter <= (select count(*) from #Tables) begin
 	
 	select @name = TableNameWithSchema from #Tables where ID = @counter
 
-	set @SQL = 'exec ' + @DatabaseName + '..sp_spaceused @_name'
+	set @SQL = 'exec ' + quotename(@DatabaseName) + '..sp_spaceused @_name'
 
 	insert into #Rating (rName, rRows, rReserved, rData, rIndex_Size, rUnused)
 	exec sp_executesql @stmt = @SQL, @params = N'@_name nvarchar(600)', @_name = @name
@@ -243,7 +241,7 @@ create table #DBFileSpace (
 
 
 set @SQL = 'select sum(size) / 128 
-					from ' + @DatabaseName + '.sys.database_files
+					from ' + quotename(@DatabaseName) + '.sys.database_files
 					where [type_desc] = ''ROWS'''
 
 
@@ -252,7 +250,7 @@ exec (@SQL)
 
 
 set @SQL = 'select sum(allocated_extent_page_count) / 128 
-					from ' + @DatabaseName + '.sys.dm_db_file_space_usage'
+					from ' + quotename(@DatabaseName) + '.sys.dm_db_file_space_usage'
 
 
 insert into #DBFileSpace (AllocatedMB)
