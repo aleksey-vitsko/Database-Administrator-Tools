@@ -11,13 +11,14 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.08
+Version: 1.09
 
-Purpose: shows current performance counters for SQLServer:Memory Manager
-(these show how much RAM memory is being used by SQL Server, and what for: database data cache, connections, locks, etc.)
+Purpose: shows current memory usage 
+(how much RAM memory is being used by the Database Engine, and what for: database cache, plan cache, memory grants, connections, locks, etc.)
 
 History:
 
+2024-02-16 --> Aleksey Vitsko - make SP show memory counters information on Azure SQL Managed Instance and Azure SQL DB
 2022-09-06 --> Aleksey Vitsko - slight updates to perf.counter description texts
 2022-09-06 --> Aleksey Vitsko - added information from "sys.dm_os_memory_clerks" to output in the Expert Mode = 1
 2022-08-27 --> Aleksey Vitsko - added @ExpertMode parameter - 0 is default and is simpler output, 1 will show all columns and details
@@ -84,7 +85,7 @@ update m
 from #MemoryManager m
 	join sys.dm_os_performance_counters pc on
 		left(m.counter_name,10) = left(pc.counter_name,10)
-		and [object_name] = 'SQLServer:Memory Manager'
+		and [object_name] like '%Memory Manager%'
 
 
 
