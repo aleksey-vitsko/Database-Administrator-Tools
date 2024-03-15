@@ -11,13 +11,14 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.09
+Version: 1.10
 
 Purpose: shows current memory usage 
 (how much RAM memory is being used by the Database Engine, and what for: database cache, plan cache, memory grants, connections, locks, etc.)
 
 History:
 
+2024-03-15 --> Aleksey Vitsko - percentage for "Maximum Workspace Memory" should be calculated in relation to "Target Server Memory", not "Total Server Memory" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/3)
 2024-02-16 --> Aleksey Vitsko - make SP show memory counters information on Azure SQL Managed Instance and Azure SQL DB
 2022-09-06 --> Aleksey Vitsko - slight updates to perf.counter description texts
 2022-09-06 --> Aleksey Vitsko - added information from "sys.dm_os_memory_clerks" to output in the Expert Mode = 1
@@ -129,6 +130,7 @@ if @ExpertMode = 1 begin
 	where	counter_name = 'Server Total RAM'
 
 
+	-- target server memory 
 	update #MemoryManager
 		set pct = (cast(@Target_Server_Memory as decimal(16,2)) / cast(@Total_RAM_on_a_server as decimal(16,2))) * 100
 	where	counter_name = 'Target Server Memory'
@@ -138,6 +140,7 @@ if @ExpertMode = 1 begin
 	where	counter_name = 'Target Server Memory'
 
 
+	-- total server memory
 	update #MemoryManager
 		set pct = (cast(@Total_SQL_Server_Memory as decimal(16,2)) / cast(@Target_Server_Memory as decimal(16,2))) * 100
 	where	counter_name = 'Total Server Memory'
@@ -147,6 +150,17 @@ if @ExpertMode = 1 begin
 	where	counter_name = 'Total Server Memory'
 
 
+	-- maximum workspace memory
+	update #MemoryManager
+		set pct = (cast(cntr_value as decimal(16,2)) / cast(@Target_Server_Memory as decimal(16,2))) * 100
+	where	counter_name = 'Maximum Workspace Memory'
+
+	update #MemoryManager
+		set percentage_info = cast(pct as varchar) + '  %  of Target SQL Server Memory'
+	where	counter_name = 'Maximum Workspace Memory'
+
+	   
+	-- other counters
 	update #MemoryManager
 		set pct = (cast(cntr_value as decimal(16,2)) / cast(@Total_SQL_Server_Memory as decimal(16,2))) * 100
 	where pct is NULL
