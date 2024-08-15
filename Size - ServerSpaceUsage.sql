@@ -6,13 +6,14 @@ create or alter procedure ServerSpaceUsage as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.05
+Version: 1.06
 
 Description: this procedure shows size information for each database on the instance
 Shows total size and total space used for each data file / log file for each database
 
 History
 
+2024-08-15 --> Aaron Bertrand - cast dSpaceUsedMB to decimal(16,2) instead of (8,2), as it can overflow on big databases
 2023-08-04 --> Aleksey Vitsko - increased "dType_Desc" to nvarchar(60) to match sys.master_files and resolve error in Azure SQL Managed Instance
 2022-09-08 --> Aleksey Vitsko - added a warning for OFFLINE databases (unable to get data/log file fullness)
 2022-09-08 --> Aleksey Vitsko - updated column names in the output for consistency
