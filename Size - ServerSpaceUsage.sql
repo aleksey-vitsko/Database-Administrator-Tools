@@ -124,7 +124,7 @@ where	dType_Desc = 'ROWS'
 */
 
 update #DatabasesAndFiles
-	set dSpaceUsedPct = cast(dSpaceUsedMB as decimal(8,2)) / cast(dSizeMB as decimal(8,2)) * 100
+	set dSpaceUsedPct = cast(dSpaceUsedMB as decimal(16,2)) / cast(dSizeMB as decimal(16,2)) * 100
 where dSizeMB <> 0
 
 update #DatabasesAndFiles
