@@ -21,8 +21,6 @@ TempDBInfo – hows detailed information on current state of TempDB database
 
 ViewSessionsConnections – use this to learn details about sessions connected to your system
 
-VirtualFileStats – taken directly from Brent Ozar’s website and turned into stored procedure for convenience. Shows virtual IO stats
-
 --------------------------------------------------------------------------------------------------------------------------------------
 
 Detailed instructions:
