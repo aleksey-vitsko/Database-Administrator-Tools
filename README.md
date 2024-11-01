@@ -7,7 +7,9 @@ Quick overview of stored procedures:
 
 ScriptLoginPermissions – scripts server-level and database-level permissions, role memberships for specified login    
 
-ViewServerProperties – shows host OS, server machine, SQL instance-level properties and configuration options, and more  
+ShowTableUsage - shows which tables are used (inserts,updates,deletes,locks,scans, etc.) within a database, and which are not
+
+ViewServerProperties – shows number of physical and logical cores, sockets, memory, host OS info, server machine info, SQL instance-level properties and configuration options, and more  
 
 MemoryManagerInfo – shows how SQL Server is using memory
 
@@ -17,7 +19,7 @@ ServerSpaceUsage – shows how much storage space SQL Server instance consumes, 
 
 DatabaseSpaceUsage – help DBA quickly identify which tables are the largest in a specified database, and table/index/reserved/free space in the database
 
-TempDBInfo – hows detailed information on current state of TempDB database
+TempDBInfo – shows detailed information on current state of TempDB database
 
 ViewSessionsConnections – use this to learn details about sessions connected to your system
 
