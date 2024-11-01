@@ -369,7 +369,7 @@ end
 
 
 
-
+/*
 -- log DB size to table
 if @Command = 'log' begin
 
@@ -456,7 +456,36 @@ if @Command = 'log' begin
 	
 
 end 
-
+*/
 set nocount off
 
 end
+
+
+
+exec DatabaseSpaceUsage
+
+exec ViewServerProperties
+
+
+
+StorageFile
+StorageDirectory
+Storage
+
+
+
+select top 100 * from StorageFile
+
+select top 100* from StorageDirectory
+
+select top 100 * from Storage
+
+
+
+
+create nonclustered index IX_StorageDirectory__Name_StorageID on StorageDirectory ([Name], StorageID)
+with (data_compression=page)
+
+
+
