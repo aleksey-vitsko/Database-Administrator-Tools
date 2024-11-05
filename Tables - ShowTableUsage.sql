@@ -1,12 +1,15 @@
 
 
-create or alter procedure ShowTableUsage as begin
+create or alter procedure ShowTableUsage (
+	@DatabaseName			nvarchar(200) = ''
+	)
+as begin
 
 /****************************************************************** SHOW TABLE USAGE PROCEDURE **************************************************************
 
 Author: Aleksey Vitsko
 
-Version: 1.00
+Version: 1.01
 
 Description: Shows table usage information (inserts, updates, deletes, locks, etc.) within given database
 
@@ -14,13 +17,30 @@ Description: Shows table usage information (inserts, updates, deletes, locks, et
 
 History:
 
+2024-11-05 --> Aleksey Vitsko - added ability to specify target database name (using the @DatabaseName parameter)
 2024-11-01 --> Aleksey Vitsko - created stored procedure
 
 
 *****************************************************************************************************************************************************************/
 
+	-- if db name is empty, set to current selected database
+	if @DatabaseName = '' begin 
+		set @DatabaseName = db_name()
+	end
 
-	SELECT 
+	-- check if specified database name exists at sys.databases
+	if not exists (select * from sys.databases where [name] = @DatabaseName) begin
+		print 'Specified database ' + @DatabaseName + ' does not exist!'
+		print 'Please specify database that exists at sys.databases.'
+		print 'Exiting...'
+		return
+	end
+
+	
+	-- execute the query
+	declare @Query nvarchar(max)
+
+	set @Query = 'SELECT 
 		s.[name]															[Schema_Name],
 		t.[name]															[Table_Name],
        
@@ -45,20 +65,25 @@ History:
 		sum(range_scan_count) + 
 		sum(singleton_lookup_count)										[Locks+Scans+Lookups]
 
-	FROM sys.dm_db_index_operational_stats(DB_ID(),NULL,NULL,NULL) AS iop
+	FROM ' + @DatabaseName + '.sys.dm_db_index_operational_stats(DB_ID(''' + @DatabaseName + '''),NULL,NULL,NULL) AS iop
 	
-		JOIN sys.indexes AS i 
+		JOIN ' + @DatabaseName + '.sys.indexes AS i 
 			ON iop.index_id = i.index_id 
 			and iop.[object_id] = i.[object_id]
 	
-		JOIN sys.tables AS t ON 
+		JOIN ' + @DatabaseName + '.sys.tables AS t ON 
 			i.[object_id] = t.[object_id] 
 	
-		join sys.schemas s on
+		join ' + @DatabaseName + '.sys.schemas s on
 			t.[schema_id] = s.[schema_id]
 
 	GROUP BY s.[name], t.[name]
-	ORDER BY [Locks+Scans+Lookups] desc, s.[name], t.[name] 
+	ORDER BY [Locks+Scans+Lookups] desc, s.[name], t.[name]'
+
+
+	--print @Query
+
+	exec sp_executesql @stmt = @Query
 
 
 end
