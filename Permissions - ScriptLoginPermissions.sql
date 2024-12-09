@@ -10,7 +10,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.11
+Version: 1.12
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +19,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2024-12-09 - Aleksey Vitsko - added support for server-level permissions on endpoints 
 --> 2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
 --> 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
 --> 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
@@ -164,7 +165,16 @@ declare @Result_temp table (
 	insert into @Result (SQLStatement)
 	select state_desc + ' ' + [permission_name] + ' to [' + @LoginName + ']'
 	from sys.server_permissions
-	where grantee_principal_id = @server_principal_id
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'SERVER'
+
+	insert into @Result (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ENDPOINT::[' + e.[name] + '] to [' + @LoginName + ']'
+	from sys.server_permissions sp
+		join sys.endpoints e on 
+			major_id = endpoint_id
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'ENDPOINT'
 
 
 	
