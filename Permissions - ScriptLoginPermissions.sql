@@ -10,7 +10,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.14
+Version: 1.15
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +19,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2024-12-12 - Aleksey Vitsko - sort databases by name for database-level permissions
 --> 2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
 --> 2024-12-12 - Aleksey Vitsko - added support for viewing server- and database- level permissions for Public roles
 --> 2024-12-09 - Aleksey Vitsko - added support for server-level permissions on endpoints 
@@ -226,6 +227,7 @@ declare @Result_temp table (
 	from sys.databases
 	where	[name] not in ('tempdb')
 			and state_desc in ('ONLINE')
+	order by [name]
 
 	open Database_Cursor
 
