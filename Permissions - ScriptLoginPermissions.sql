@@ -1,7 +1,10 @@
 
 
 
-create or alter procedure ScriptLoginPermissions (@PrincipalName as varchar(150)) as begin
+create or alter procedure ScriptLoginPermissions (
+	@PrincipalName				varchar(150),
+	@ShowSystemPermissions		bit = 0
+	) as begin
 
 set nocount on
 
@@ -10,7 +13,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.15
+Version: 1.16
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +22,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2024-12-12 - Aleksey Vitsko - added ability to view permissions on system objects using the @ShowSystemObject parameter
 --> 2024-12-12 - Aleksey Vitsko - sort databases by name for database-level permissions
 --> 2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
 --> 2024-12-12 - Aleksey Vitsko - added support for viewing server- and database- level permissions for Public roles
@@ -98,7 +102,7 @@ declare @Result_temp table (
 
 	-- check if specified login exists
 	if not exists (select * from sys.server_principals where name = @PrincipalName) begin
-		print 'Specified login -- ' + @PrincipalName + ' -- does not exist'
+		print 'Specified principal -- ' + @PrincipalName + ' -- does not exist'
 		return
 	end 
 
@@ -303,42 +307,93 @@ declare @Result_temp table (
 
 		
 		-- database level permissions
-		set @sql = 'select class_desc, 
-			case class_desc
-				when ''OBJECT_OR_COLUMN'' then os.[name]
-				when ''TYPE'' then type_schema.[name]
-				else ''''
-			end,
-			case class_desc 
-				when ''DATABASE'' then ''DB''
-				when ''OBJECT_OR_COLUMN'' then o.[name]
-				when ''SCHEMA'' then s.[name] 
-				when ''TYPE'' then t.[name]
-			end, 
-			[permission_name],
-			state_desc,
-			c.[name] 
-		from ' + quotename(@database_name) + '.sys.database_permissions dp
-			left join ' + quotename(@database_name) + '.sys.objects o on
-				dp.major_id = o.[object_id]
-			left join ' + quotename(@database_name) + '.sys.schemas s on
-				dp.major_id = s.[schema_id]
-			left join ' + quotename(@database_name) + '.sys.types t on
-				dp.major_id = t.[user_type_id]
-			left join ' + quotename(@database_name) + '.sys.columns c on
-				dp.major_id = c.[object_id]
-				and dp.minor_id = c.[column_id]
-			left join ' + quotename(@database_name) + '.sys.schemas os on
-				o.schema_id = os.schema_id
-			left join ' + quotename(@database_name) + '.sys.schemas type_schema on
-				t.schema_id = type_schema.schema_id
-		where grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
-				and case class_desc
-				when ''OBJECT_OR_COLUMN'' then os.[name]
-				when ''TYPE'' then type_schema.[name]
-				else ''''
-			end is not NULL' 
+		if @ShowSystemPermissions = 0 begin
+		
+			set @sql = 'select class_desc, 
+				case class_desc
+					when ''OBJECT_OR_COLUMN'' then os.[name]
+					when ''TYPE'' then type_schema.[name]
+					else ''''
+				end,
+				case class_desc 
+					when ''DATABASE'' then ''DB''
+					when ''OBJECT_OR_COLUMN'' then o.[name]
+					when ''SCHEMA'' then s.[name] 
+					when ''TYPE'' then t.[name]
+				end, 
+				[permission_name],
+				state_desc,
+				c.[name] 
+			from ' + quotename(@database_name) + '.sys.database_permissions dp
+				left join ' + quotename(@database_name) + '.sys.objects o on
+					dp.major_id = o.[object_id]
+				left join ' + quotename(@database_name) + '.sys.schemas s on
+					dp.major_id = s.[schema_id]
+				left join ' + quotename(@database_name) + '.sys.types t on
+					dp.major_id = t.[user_type_id]
+				left join ' + quotename(@database_name) + '.sys.columns c on
+					dp.major_id = c.[object_id]
+					and dp.minor_id = c.[column_id]
+				left join ' + quotename(@database_name) + '.sys.schemas os on
+					o.schema_id = os.schema_id
+				left join ' + quotename(@database_name) + '.sys.schemas type_schema on
+					t.schema_id = type_schema.schema_id
+			where grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
+					and case class_desc
+					when ''OBJECT_OR_COLUMN'' then os.[name]
+					when ''TYPE'' then type_schema.[name]
+					else ''''
+				end is not NULL' 
 				
+		end
+
+
+		if @ShowSystemPermissions = 1 begin
+		
+			set @sql = 'select class_desc, 
+				case class_desc
+					when ''OBJECT_OR_COLUMN'' then coalesce(os.[name],sos.[name])
+					when ''TYPE'' then type_schema.[name]
+					else ''''
+				end,
+				case class_desc 
+					when ''DATABASE'' then ''DB''
+					when ''OBJECT_OR_COLUMN'' then coalesce(o.[name],so.[name])
+					when ''SCHEMA'' then s.[name] 
+					when ''TYPE'' then t.[name]
+				end, 
+				[permission_name],
+				state_desc,
+				c.[name] 
+			from ' + quotename(@database_name) + '.sys.database_permissions dp
+				left join ' + quotename(@database_name) + '.sys.objects o on
+					dp.major_id = o.[object_id]
+				left join ' + quotename(@database_name) + '.sys.system_objects so on
+					dp.major_id = so.[object_id]
+				left join ' + quotename(@database_name) + '.sys.schemas s on
+					dp.major_id = s.[schema_id]
+				left join ' + quotename(@database_name) + '.sys.types t on
+					dp.major_id = t.[user_type_id]
+				left join ' + quotename(@database_name) + '.sys.columns c on
+					dp.major_id = c.[object_id]
+					and dp.minor_id = c.[column_id]
+				left join ' + quotename(@database_name) + '.sys.schemas os on
+					o.schema_id = os.schema_id
+				left join ' + quotename(@database_name) + '.sys.schemas sos on
+					so.schema_id = sos.schema_id
+
+				left join ' + quotename(@database_name) + '.sys.schemas type_schema on
+					t.schema_id = type_schema.schema_id
+			where	grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
+					and case class_desc 
+						when ''DATABASE'' then ''DB''
+						when ''OBJECT_OR_COLUMN'' then coalesce(o.[name],so.[name])
+						when ''SCHEMA'' then s.[name] 
+						when ''TYPE'' then t.[name]
+					end is not NULL'
+
+		end
+
 
 		insert into @database_permissions (class_desc,[schema_name],[object_name],[permission_name],state_desc,column_name)
 		exec (@sql)
