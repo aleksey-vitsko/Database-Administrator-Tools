@@ -1,7 +1,7 @@
 
 
 
-create or alter procedure ScriptLoginPermissions (@LoginName as varchar(150)) as begin
+create or alter procedure ScriptLoginPermissions (@PrincipalName as varchar(150)) as begin
 
 set nocount on
 
@@ -10,7 +10,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.12
+Version: 1.14
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -19,6 +19,8 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
+--> 2024-12-12 - Aleksey Vitsko - added support for viewing server- and database- level permissions for Public roles
 --> 2024-12-09 - Aleksey Vitsko - added support for server-level permissions on endpoints 
 --> 2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
 --> 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
@@ -94,22 +96,22 @@ declare @Result_temp table (
 -------------------------------------------------------------------- Main Logic  -----------------------------------------------------------------------
 
 	-- check if specified login exists
-	if not exists (select * from sys.server_principals where name = @LoginName) begin
-		print 'Specified login -- ' + @LoginName + ' -- does not exist'
+	if not exists (select * from sys.server_principals where name = @PrincipalName) begin
+		print 'Specified login -- ' + @PrincipalName + ' -- does not exist'
 		return
 	end 
 
 
 	-- insert login name
 	insert into @Result (SQLStatement)
-	select '------------------------ ' + @LoginName +  ' --------------------------'
+	select '------------------------ ' + @PrincipalName +  ' --------------------------'
 	
 	insert into @Result (SQLStatement)
 	select ''
 
 	-- login type
 	insert into @Result (SQLStatement)
-	select '-- Login type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @LoginName)
+	select '-- Principal Type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @PrincipalName)
 
 	insert into @Result (SQLStatement)
 	select ''
@@ -117,59 +119,62 @@ declare @Result_temp table (
 
 
 	-- login token
-	begin try
-	execute as login = @LoginName
+	--if @PrincipalName not in ('public') begin 
+	
+		begin try
+		execute as login = @PrincipalName
 
-		insert into @login_token (tName, tType, tUsage)
-		select
-			distinct [name], [type], usage
-		from sys.login_token
-		where	principal_id <> 0
-				and [name] <> @LoginName
-				and [type] <> 'SERVER ROLE'
+			insert into @login_token (tName, tType, tUsage)
+			select
+				distinct [name], [type], usage
+			from sys.login_token
+			where	principal_id <> 0
+					and [name] <> @PrincipalName
+					and [type] <> 'SERVER ROLE'
 
-	revert
-	end try
-	begin catch
-		print ERROR_MESSAGE()
-	end catch
+		revert
+		end try
+		begin catch
+			print ERROR_MESSAGE()
+		end catch
 
-	if (select count(*) from @login_token) > 0 begin
+		if (select count(*) from @login_token) > 0 begin
 
-		insert into @Result (SQLStatement)
-		select '-- Group membership:' 
+			insert into @Result (SQLStatement)
+			select '-- Group membership:' 
 
-		insert into @Result (SQLStatement)
-		select '-- ' + quotename(@LoginName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) --+ ' -- (' + lower(usage) + ')'
-		from @login_token
+			insert into @Result (SQLStatement)
+			select '-- ' + quotename(@PrincipalName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) --+ ' -- (' + lower(usage) + ')'
+			from @login_token
 		
-		insert into @Result (SQLStatement)
-		select ''
+			insert into @Result (SQLStatement)
+			select ''
 
-	end
+		end
 
+	--end
 
 	-- get sid, principal_id of login
 	select	@sid = [sid],
 			@server_principal_id = [principal_id]
 	from sys.server_principals 
-	where [name] = @LoginName 
+	where [name] = @PrincipalName 
 
 	set @sid_varchar = convert(varchar(max), @sid, 1 )
 	
 
 	-- get server level permissions
 	insert into @Result (SQLStatement)
-	select 'use master'
+	select 'use [master]  /* Server-level permissions */'
 
 	insert into @Result (SQLStatement)
-	select state_desc + ' ' + [permission_name] + ' to [' + @LoginName + ']'
+	select state_desc + ' ' + [permission_name] + ' to [' + @PrincipalName + ']'
 	from sys.server_permissions
 	where	grantee_principal_id = @server_principal_id
 			and class_desc = 'SERVER'
 
 	insert into @Result (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ENDPOINT::[' + e.[name] + '] to [' + @LoginName + ']'
+	select sp.state_desc + ' ' + [permission_name] + ' on ENDPOINT::[' + e.[name] + '] to [' + @PrincipalName + ']'
 	from sys.server_permissions sp
 		join sys.endpoints e on 
 			major_id = endpoint_id
@@ -187,13 +192,13 @@ declare @Result_temp table (
 				where srm.member_principal_id = @server_principal_id) begin
 
 		insert into @Result (SQLStatement)
-		select 'alter server role [sysadmin] add member [' + @LoginName + ']'
+		select 'alter server role [sysadmin] add member [' + @PrincipalName + ']'
 
 		insert into @Result (SQLStatement)
-		select '-- !!! WARNING: [' + @LoginName + ']' + ' is a member of SYSADMIN server role'
+		select '-- !!! WARNING: [' + @PrincipalName + ']' + ' is a member of SYSADMIN server role'
 
 		insert into @Result (SQLStatement)
-		select '-- !!! WARNING: [' + @LoginName + ']' + ' can do everything on this instance, you can ignore below permissions'
+		select '-- !!! WARNING: [' + @PrincipalName + ']' + ' can do everything on this instance, you can ignore below permissions'
 						
 	end
 	
@@ -206,7 +211,7 @@ declare @Result_temp table (
 						and sp.[name] <> 'sysadmin'
 				where srm.member_principal_id = @server_principal_id) begin
 		insert into @Result (SQLStatement)
-		select 'alter server role [' + sp.name + '] add member [' + @LoginName + ']'
+		select 'alter server role [' + sp.name + '] add member [' + @PrincipalName + ']'
 		from sys.server_role_members srm
 			join sys.server_principals sp on
 				srm.role_principal_id = sp.principal_id
@@ -229,10 +234,21 @@ declare @Result_temp table (
 
 	while @@FETCH_STATUS = 0 begin
 
-		set @sql = 'if not exists (select * from ' + @database_name + '.sys.database_principals where [sid] = ' + @sid_varchar + ') select 0,NULL,NULL else select 1,[name],principal_id from ' + @database_name + '.sys.database_principals where [sid] = ' + @sid_varchar 
+		/* for regular server principals, match to database users by sid */ 
+		if @PrincipalName not in ('public') begin 
+			
+			set @sql = 'if not exists (select * from ' + quotename(@database_name) + '.sys.database_principals where [sid] = ' + @sid_varchar + ') select 0,NULL,NULL else select 1,[name],principal_id from ' + quotename(@database_name) + '.sys.database_principals where [sid] = ' + @sid_varchar 
+			
+			insert into @user_info (Indicator,[name],principal_id)
+			exec (@sql)
+		end
 
-		insert into @user_info (Indicator,[name],principal_id)
-		exec (@sql)
+		/* for public server principal, don't match by sid; just put in public database role */ 
+		if @PrincipalName = 'public' begin
+			insert into @user_info (Indicator,[name],principal_id)
+			select 1,'public',0
+		end 
+
 
 		-- if no database principal found for this login, move to next database
 		if (select Indicator from @user_info) = 0 begin 
@@ -248,17 +264,29 @@ declare @Result_temp table (
 
 		-- create in current db for current login
 		insert into @Result (SQLStatement)
-		select 'use ' + @database_name
+		select 'use ' + quotename(@database_name)
 		union select ''
 
-		insert into @Result (SQLStatement)
-		select 'create user [' + @database_user_name + '] for login [' + @LoginName + ']'
+
+		/* for most server principals, add create user statement */
+		if @PrincipalName not in ('Public') begin
+	
+			insert into @Result (SQLStatement)
+			select 'create user [' + @database_user_name + '] for login [' + @PrincipalName + ']'
+		end
+
+		/* for public server role, just add a note saying that  */
+		if @PrincipalName = 'Public' begin
+	
+			insert into @Result (SQLStatement)
+			select '/* Public Database role */'
+		end
 
 		
 		-- database role membership
 		set @sql = 'select p.[name]
-		from ' + @database_name + '.sys.database_role_members drm
-			join ' + @database_name + '.sys.database_principals p on
+		from ' + quotename(@database_name) + '.sys.database_role_members drm
+			join ' + quotename(@database_name) + '.sys.database_principals p on
 				role_principal_id = principal_id
 		where	drm.member_principal_id = ' + cast(@database_principal_id as varchar)
 
@@ -288,21 +316,26 @@ declare @Result_temp table (
 			[permission_name],
 			state_desc,
 			c.[name] 
-		from ' + @database_name + '.sys.database_permissions dp
-			left join ' + @database_name + '.sys.objects o on
+		from ' + quotename(@database_name) + '.sys.database_permissions dp
+			left join ' + quotename(@database_name) + '.sys.objects o on
 				dp.major_id = o.[object_id]
-			left join ' + @database_name + '.sys.schemas s on
+			left join ' + quotename(@database_name) + '.sys.schemas s on
 				dp.major_id = s.[schema_id]
-			left join ' + @database_name + '.sys.types t on
+			left join ' + quotename(@database_name) + '.sys.types t on
 				dp.major_id = t.[user_type_id]
-			left join ' + @database_name + '.sys.columns c on
+			left join ' + quotename(@database_name) + '.sys.columns c on
 				dp.major_id = c.[object_id]
 				and dp.minor_id = c.[column_id]
-			left join ' + @database_name + '.sys.schemas os on
+			left join ' + quotename(@database_name) + '.sys.schemas os on
 				o.schema_id = os.schema_id
-			left join ' + @database_name + '.sys.schemas type_schema on
+			left join ' + quotename(@database_name) + '.sys.schemas type_schema on
 				t.schema_id = type_schema.schema_id
-		where grantee_principal_id = ' + cast(@database_principal_id as varchar)
+		where grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
+				and case class_desc
+				when ''OBJECT_OR_COLUMN'' then os.[name]
+				when ''TYPE'' then type_schema.[name]
+				else ''''
+			end is not NULL' 
 				
 
 		insert into @database_permissions (class_desc,[schema_name],[object_name],[permission_name],state_desc,column_name)
