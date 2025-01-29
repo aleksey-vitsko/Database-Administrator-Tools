@@ -10,7 +10,7 @@ create or alter procedure DatabaseSpaceUsage (
 
 Author: Aleksey Vitsko
 
-Version: 1.17
+Version: 1.18
 
 Description: For a given database, shows: 
 1) Total data / index / unused size inside the data file 
@@ -29,6 +29,7 @@ Description: For a given database, shows:
 
 History:
 
+2025-01-29 --> Aleksey Vitsko - when calling sp_spaceused, both table name and schema name should be taken in brackets
 2023-12-05 --> Aleksey Vitsko - add square brackets for database names like "A.B.C" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/2 )
 2022-11-30 --> Aleksey Vitsko - uncomment the logging part, corrections to make it work (full refactor yet to come) 
 2022-09-19 --> Aleksey Vitsko - made "tables detail" command work
@@ -149,7 +150,7 @@ create table #rating (
 
 -- get list of tables for current database
 set @SQL = 'select 
-	[name],
+	quotename([name]),
 	[schema_id]
 from ' + quotename(@DatabaseName) + '.sys.tables
 order by name'
@@ -460,32 +461,5 @@ end
 set nocount off
 
 end
-
-
-
-exec DatabaseSpaceUsage
-
-exec ViewServerProperties
-
-
-
-StorageFile
-StorageDirectory
-Storage
-
-
-
-select top 100 * from StorageFile
-
-select top 100* from StorageDirectory
-
-select top 100 * from Storage
-
-
-
-
-create nonclustered index IX_StorageDirectory__Name_StorageID on StorageDirectory ([Name], StorageID)
-with (data_compression=page)
-
 
 
