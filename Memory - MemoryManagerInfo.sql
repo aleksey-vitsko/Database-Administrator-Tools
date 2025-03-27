@@ -11,13 +11,14 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.10
+Version: 1.11
 
 Purpose: shows current memory usage 
 (how much RAM memory is being used by the Database Engine, and what for: database cache, plan cache, memory grants, connections, locks, etc.)
 
 History:
 
+2025-03-27 --> Aleksey Vitsko - show all memory clerks in Expert mode (to include SQLBUFFERPOOL)
 2024-03-15 --> Aleksey Vitsko - percentage for "Maximum Workspace Memory" should be calculated in relation to "Target Server Memory", not "Total Server Memory" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/3)
 2024-02-16 --> Aleksey Vitsko - make SP show memory counters information on Azure SQL Managed Instance and Azure SQL DB
 2022-09-06 --> Aleksey Vitsko - slight updates to perf.counter description texts
@@ -205,12 +206,14 @@ if @ExpertMode = 1 begin
 	-- show memory clerks 
 	select 
 		[type]								[clerk_name], 
-		'sys.dm_os_memory_clerks - part of the "Stolen Server Memory"'		[clerk_location],
+		case [type]
+			when 'MEMORYCLERK_SQLBUFFERPOOL' then 'sys.dm_os_memory_clerks - Database Cache Memory (Buffer Pool)'
+			else 'sys.dm_os_memory_clerks - part of the "Stolen Server Memory"'
+		end [clerk_desc],
 		sum(pages_kb)						[kb],
 		sum(pages_kb) / 1024				[MB],
 		sum(pages_kb) / 1024 / 1024			[GB]
 	from sys.dm_os_memory_clerks
-	where [type] not in ('MEMORYCLERK_SQLBUFFERPOOL')
 	group by [type]
 	order by [kb] desc
 
