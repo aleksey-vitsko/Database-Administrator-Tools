@@ -13,7 +13,7 @@ set nocount on
 
 Author: Aleksey Vitsko
 
-Version: 1.16
+Version: 1.17
 
 Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
 Result can be copy-pasted and used to recreate these permissions on a different server. 
@@ -22,6 +22,7 @@ Also, SP can be used to simply check permissions for a login, to see what she ca
 
 History:
 
+--> 2025-04-14 - Aleksey Vitsko - resolve issue with sys.login_token under "execute as" if the user did not have permission to current database
 --> 2024-12-12 - Aleksey Vitsko - added ability to view permissions on system objects using the @ShowSystemObject parameter
 --> 2024-12-12 - Aleksey Vitsko - sort databases by name for database-level permissions
 --> 2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
@@ -55,7 +56,7 @@ declare
 	@database_principal_id		smallint, 
 	@database_user_name			varchar(150), 
 	@database_name				varchar(150), 
-	@sql						varchar(max),
+	@sql						nvarchar(max),
 	@EngineEdition				varchar(300) = cast(serverproperty('EngineEdition') as varchar(300))
 
 
@@ -78,7 +79,9 @@ declare @database_permissions table (
 	column_name				varchar(150))
 
 
-declare @login_token table (
+drop table if exists #login_token
+
+create table #login_token  (
 	tName					varchar(128), 
 	tType					varchar(128),
 	tUsage					varchar(128)
@@ -127,30 +130,36 @@ declare @Result_temp table (
 	--if @PrincipalName not in ('public') begin 
 	
 		begin try
-		execute as login = @PrincipalName
+		
+			set @SQL = 'use master
 
-			insert into @login_token (tName, tType, tUsage)
-			select
-				distinct [name], [type], usage
-			from sys.login_token
-			where	principal_id <> 0
-					and [name] <> @PrincipalName
-					and [type] <> 'SERVER ROLE'
+			execute as login = @_PrincipalName
 
-		revert
+			insert into #login_token (tName, tType, tUsage)
+						select
+							distinct [name], [type], usage
+						from sys.login_token
+						where	principal_id <> 0
+								and [name] <> @_PrincipalName
+								and [type] <> ''SERVER ROLE''
+
+			revert'
+
+			execute sp_executesql @SQL, N'@_PrincipalName varchar(200)', @_PrincipalName = @PrincipalName
+
 		end try
 		begin catch
 			print ERROR_MESSAGE()
 		end catch
 
-		if (select count(*) from @login_token) > 0 begin
+		if (select count(*) from #login_token) > 0 begin
 
 			insert into @Result (SQLStatement)
 			select '-- Group membership:' 
 
 			insert into @Result (SQLStatement)
 			select '-- ' + quotename(@PrincipalName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) --+ ' -- (' + lower(usage) + ')'
-			from @login_token
+			from #login_token
 		
 			insert into @Result (SQLStatement)
 			select ''
