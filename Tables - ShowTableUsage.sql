@@ -9,15 +9,17 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.00
+Version: 2.01
 
 Description: 
 
 Shows table usage information (inserts, updates, deletes, scans, seeks, lookups, locks, latches, etc.) for all tables in a specified database.
 For each table (each row), usage statistics is aggregated from all table's indexes.
 
-Useful for finding tables that may not be used (and possibly retiring them for good :D).
+Useful for finding tables that may not be used.
 Disclaimer: Keep in mind that usage stats are reset each time server is restarted, so be careful if retiring anything.
+
+See the rightmost column "Sum_Usage".
 
 Can be called without any parameters - will show tables' usage for current database.
 Can be called specifying a database with @DatabaseName parameter - will show tables' usage for specified database.
@@ -26,6 +28,7 @@ Can be called specifying a database with @DatabaseName parameter - will show tab
 
 History:
 
+2025-06-04 --> Aleksey Vitsko - minor bugfix plus tested on Azure SQL Database
 2025-06-04 --> Aleksey Vitsko - total rework to support all columns from "sys.dm_db_index_operational_stats" and "sys.dm_db_index_usage_stats"
 2024-11-05 --> Aleksey Vitsko - added ability to specify target database name (using the @DatabaseName parameter)
 2024-11-01 --> Aleksey Vitsko - created stored procedure
@@ -37,6 +40,7 @@ Tested on:
 
 - SQL Server 2022
 - Azure SQL Managed Instance (SQL 2022 update policy)
+- Azure SQL Database
 
 
 *****************************************************************************************************************************************************************/
@@ -180,11 +184,12 @@ Tested on:
 	ORDER BY [Sum_Usage] desc, s.[name], t.[name]'
 
 
-	--print @Query
+	-- print @Query
 	-- print len(@Query)
 
-	exec sp_executesql @stmt = @Query
+	exec (@Query)
 
+	-- exec ShowTableUsage
 
 end
  
