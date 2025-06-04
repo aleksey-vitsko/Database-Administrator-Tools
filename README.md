@@ -5,23 +5,23 @@ Quick overview of stored procedures:
 
 --------------------------------------------------------------------------------------------------------------------------------------
 
-ScriptLoginPermissions – scripts server-level and database-level permissions, role memberships for specified login    
+ScriptLoginPermissions – scripts server-level and database-level permissions, role and group memberships for specified login.    
 
-ShowTableUsage - shows which tables are used (inserts,updates,deletes,locks,scans, etc.) within a database, and which are not
+ShowTableUsage - shows which tables are used (inserts,updates,deletes,locks,scans,seeks, etc.) within a database, and which are not.
 
-ViewServerProperties – shows number of physical and logical cores, sockets, memory, host OS info, server machine info, SQL instance-level properties and configuration options, and more  
+ViewServerProperties – shows number of physical and logical cores, sockets, memory, host OS info, server machine info, SQL instance-level properties and configuration options, and more.  
 
-MemoryManagerInfo – shows how SQL Server is using memory
+MemoryManagerInfo – shows break down of how SQL Server instance is using memory.
 
-BufferPoolSize – break down of the Buffer Pool
+BufferPoolSize – break down of the Buffer Pool.
 
-ServerSpaceUsage – shows how much storage space SQL Server instance consumes, and details for files and their fullness
+ServerSpaceUsage – shows how much storage space SQL Server instance consumes, and details for files and their fullness.
 
-DatabaseSpaceUsage – help DBA quickly identify which tables are the largest in a specified database, and table/index/reserved/free space in the database
+DatabaseSpaceUsage – help DBA quickly identify which tables are the largest in a specified database, and table/index/reserved/free space for each table in the database.
 
-TempDBInfo – shows detailed information on current state of TempDB database
+TempDBInfo – shows detailed information on current state of TempDB database, file fullness, etc.
 
-ViewSessionsConnections – use this to learn details about sessions connected to your system
+ViewSessionsConnections – use this to learn details about sessions connected to your system.
 
 --------------------------------------------------------------------------------------------------------------------------------------
 
