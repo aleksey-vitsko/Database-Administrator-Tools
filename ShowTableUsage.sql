@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.11
+Version: 2.12
 
 Description: 
 
@@ -27,6 +27,7 @@ Can be called specifying a database with @DatabaseName parameter - will show tab
 
 History:
 
+2025-07-03 --> Aleksey Vitsko - added "Server_Start_Time" and "Database_Name" columns to the output; removed "object_id"
 2025-07-02 --> Aleksey Vitsko - added support for SQL Server 2017 (its DMVs doesn't have few columns)
 2025-06-04 --> Aleksey Vitsko - minor bugfix plus tested on Azure SQL Database
 2025-06-04 --> Aleksey Vitsko - total rework to support all columns from "sys.dm_db_index_operational_stats" and "sys.dm_db_index_usage_stats"
@@ -83,9 +84,14 @@ Tested on:
 	if @Version in ('2019','2022','2025','SQL Azure') or cast(@Version as int) > 2025 begin 
 	
 		set @Query = 'SELECT 
+			
+			(select cast(sqlserver_start_time as smalldatetime) from sys.dm_os_sys_info )		[Server_Start_Time],
+			''' + @DatabaseName + '''											[Database_Name],
+			
 			s.[name]															[Schema_Name],
 			t.[name]															[Table_Name],
-			t.[object_id],
+			--t.[object_id],
+			
 
 			isnull(sum(leaf_insert_count),0) +	isnull(sum(nonleaf_insert_count),0)					[Inserts],				-- sum of Leaf and Nonleaf inserts
 			isnull(sum(leaf_delete_count),0) +	 isnull(sum(iop.nonleaf_delete_count),0)			[Deletes],				-- sum of Leaf and Nonleaf deletes
@@ -210,9 +216,13 @@ Tested on:
 	if @Version = '2017' begin
 
 		set @Query = 'SELECT 
+			
+			(select cast(sqlserver_start_time as smalldatetime) from sys.dm_os_sys_info )		[Server_Start_Time],
+			''' + @DatabaseName + '''											[Database_Name],
+
 			s.[name]															[Schema_Name],
 			t.[name]															[Table_Name],
-			t.[object_id],
+			--t.[object_id],
 
 			isnull(sum(leaf_insert_count),0) +	isnull(sum(nonleaf_insert_count),0)					[Inserts],				-- sum of Leaf and Nonleaf inserts
 			isnull(sum(leaf_delete_count),0) +	 isnull(sum(iop.nonleaf_delete_count),0)			[Deletes],				-- sum of Leaf and Nonleaf deletes
