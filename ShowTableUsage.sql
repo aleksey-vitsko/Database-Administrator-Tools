@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.12
+Version: 2.13
 
 Description: 
 
@@ -27,6 +27,7 @@ Can be called specifying a database with @DatabaseName parameter - will show tab
 
 History:
 
+2025-07-08 --> Aleksey Vitsko - tested on / added support for SQL Server 2016
 2025-07-03 --> Aleksey Vitsko - added "Server_Start_Time" and "Database_Name" columns to the output; removed "object_id"
 2025-07-02 --> Aleksey Vitsko - added support for SQL Server 2017 (its DMVs doesn't have few columns)
 2025-06-04 --> Aleksey Vitsko - minor bugfix plus tested on Azure SQL Database
@@ -37,7 +38,7 @@ History:
 
 Tested on:
 
-- SQL Server 2017,2019,2022
+- SQL Server 2016 (SP2), 2017 (CU31), 2019 (RTM), 2022 (RTM)
 - Azure SQL Managed Instance (SQL 2022 update policy)
 - Azure SQL Database
 
@@ -81,6 +82,9 @@ Tested on:
 
 	
 	/* execute the query */
+	
+	/* SQL Server 2019-2025 and Azure SQL */
+	
 	if @Version in ('2019','2022','2025','SQL Azure') or cast(@Version as int) > 2025 begin 
 	
 		set @Query = 'SELECT 
@@ -213,7 +217,9 @@ Tested on:
 	end
 
 
-	if @Version = '2017' begin
+	/* SQL Server 2016-2017 */
+
+	if @Version in ('2016','2017') begin
 
 		set @Query = 'SELECT 
 			
