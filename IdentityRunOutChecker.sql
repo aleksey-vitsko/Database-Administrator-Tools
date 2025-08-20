@@ -10,7 +10,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.00
+Version: 1.01
 
 
 Description: 
@@ -30,6 +30,7 @@ Can be slower if there are non-indexed identity column(s), getting max(ID) value
 
 History:
 
+2025-08-20 -> Aleksey Vitsko - increase compatibility with Azure SQL Database
 2025-08-18 -> Aleksey Vitsko - created procedure (1st version)
 
 
@@ -65,7 +66,6 @@ if @EngineEdition = 5 and @DatabaseName = 'all' begin
 end
 	
 
-	
 /* check if specified database name exists at sys.databases */
 if @DatabaseName <> ('all') and not exists (select * from sys.databases where [name] = @DatabaseName) begin
 		print 'Specified database [' + @DatabaseName + '] does not exist!'
@@ -75,8 +75,27 @@ if @DatabaseName <> ('all') and not exists (select * from sys.databases where [n
 end
 
 
+/* in case of Azure SQL Database */
+/* querying master database from the context of user database is not allowed */
+if @EngineEdition = 5 and @DatabaseName = 'master' and (select db_name()) <> 'master' begin
+	print 'Specifying master database in SP from the context of current database is not allowed!'
+		print 'Please specify currently selected database'
+		print 'Exiting...'
+		return
+end
 
+
+/* in case of Azure SQL Database */
+/* querying user database from the context of master database is not allowed */
+if @EngineEdition = 5 and @DatabaseName <> 'master'  and (select db_name()) = 'master' begin
+	print 'Specifying a user database in SP from the context of master database is not allowed!'
+		print 'Please specify currently selected database'
+		print 'Exiting...'
+		return
+end
 	
+
+		
 /********************************************* Temp Tables, Etc. ***************************************************************/
 
 /* temp worksets */
@@ -302,14 +321,10 @@ end
 /*
 
 
-exec IdentityRunOutChecker @PercentUsedOver = 0
+exec IdentityRunOutChecker @PercentUsedOver = 50
 
 
-exec IdentityRunOutChecker 'BulkDB', 0
-
-
-
-exec IdentityRunOutChecker 'master'
+exec IdentityRunOutChecker 'TestDB', 0
 
 
 */
