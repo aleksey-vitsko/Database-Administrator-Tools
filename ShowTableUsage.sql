@@ -55,6 +55,9 @@ Tested on:
 		set @DatabaseName = db_name()
 	end
 
+	-- for database names with special characters ie: 'mydbname-dev'  - used below in constructing the 'FROM' statement
+	declare @DatabaseName_q varchar(128) = quotename(@DatabaseName)
+	
 	-- check if specified database name exists at sys.databases
 	if not exists (select * from sys.databases where [name] = @DatabaseName) begin
 		print 'Specified database ' + @DatabaseName + ' does not exist!'
@@ -195,19 +198,19 @@ Tested on:
 			isnull(sum(insert_over_ghost_version_offrow),0)				[Sum_Usage]
 		
 
-		FROM ' + @DatabaseName + '.sys.tables t
+		FROM ' + @DatabaseName_q + '.sys.tables t
 
-			left join ' + @DatabaseName + '.sys.schemas s on
+			left join ' + @DatabaseName_q + '.sys.schemas s on
 				t.[schema_id] = s.[schema_id]
 	
-			left join ' + @DatabaseName + '.sys.dm_db_index_operational_stats(DB_ID(''' + @DatabaseName + '''),NULL,NULL,NULL) iop on
+			left join ' + @DatabaseName_q + '.sys.dm_db_index_operational_stats(DB_ID(''' + @DatabaseName + '''),NULL,NULL,NULL) iop on
 				t.[object_id] = iop.[object_id]
 
-			left join ' + @DatabaseName + '.sys.indexes i on 
+			left join ' + @DatabaseName_q + '.sys.indexes i on 
 				t.[object_id]  = i.[object_id]
 				and iop.index_id = i.index_id 
 	
-			left join ' + @DatabaseName + '.sys.dm_db_index_usage_stats ius on
+			left join ' + @DatabaseName_q + '.sys.dm_db_index_usage_stats ius on
 				t.[object_id] = ius.[object_id]
 
 		GROUP BY s.[name], t.[name], t.[object_id]
@@ -315,17 +318,17 @@ Tested on:
 
 		FROM ' + @DatabaseName + '.sys.tables t
 
-			left join ' + @DatabaseName + '.sys.schemas s on
+			left join ' + @DatabaseName_q + '.sys.schemas s on
 				t.[schema_id] = s.[schema_id]
 	
-			left join ' + @DatabaseName + '.sys.dm_db_index_operational_stats(DB_ID(''' + @DatabaseName + '''),NULL,NULL,NULL) iop on
+			left join ' + @DatabaseName_q + '.sys.dm_db_index_operational_stats(DB_ID(''' + @DatabaseName + '''),NULL,NULL,NULL) iop on
 				t.[object_id] = iop.[object_id]
 
-			left join ' + @DatabaseName + '.sys.indexes i on 
+			left join ' + @DatabaseName_q + '.sys.indexes i on 
 				t.[object_id]  = i.[object_id]
 				and iop.index_id = i.index_id 
 	
-			left join ' + @DatabaseName + '.sys.dm_db_index_usage_stats ius on
+			left join ' + @DatabaseName_q + '.sys.dm_db_index_usage_stats ius on
 				t.[object_id] = ius.[object_id]
 
 		GROUP BY s.[name], t.[name], t.[object_id]
