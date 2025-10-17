@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.13
+Version: 2.14
 
 Description: 
 
@@ -27,6 +27,7 @@ Can be called specifying a database with @DatabaseName parameter - will show tab
 
 History:
 
+2025-10-17 --> Secco9999 - use quotename() for database names with special characters ie: 'mydbname-dev' 
 2025-07-08 --> Aleksey Vitsko - tested on / added support for SQL Server 2016
 2025-07-03 --> Aleksey Vitsko - added "Server_Start_Time" and "Database_Name" columns to the output; removed "object_id"
 2025-07-02 --> Aleksey Vitsko - added support for SQL Server 2017 (its DMVs doesn't have few columns)
@@ -55,10 +56,10 @@ Tested on:
 		set @DatabaseName = db_name()
 	end
 
-	-- for database names with special characters ie: 'mydbname-dev'  - used below in constructing the 'FROM' statement
+	/* for database names with special characters ie: 'mydbname-dev'  - used below in constructing the 'FROM' statement */
 	declare @DatabaseName_q varchar(128) = quotename(@DatabaseName)
 	
-	-- check if specified database name exists at sys.databases
+	/* check if specified database name exists at sys.databases */
 	if not exists (select * from sys.databases where [name] = @DatabaseName) begin
 		print 'Specified database ' + @DatabaseName + ' does not exist!'
 		print 'Please specify database that exists at sys.databases.'
