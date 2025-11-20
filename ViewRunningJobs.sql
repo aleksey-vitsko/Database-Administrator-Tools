@@ -23,9 +23,8 @@ History:
 
 Tested on:
 
-- SQL Server 2016 (SP2), 2017 (CU31), 2019 (RTM), 2022 (RTM)
-- Azure SQL Managed Instance (SQL 2022 update policy)
-- Azure SQL Database
+- SQL Server 2016 (SP2), 2017 (CU31), 2019 (RTM), 2022 (RTM), 2025 
+- Azure SQL Managed Instance (SQL 2022 and 2025 update policy)
 
 
 *****************************************************************************************************************************************************************/
