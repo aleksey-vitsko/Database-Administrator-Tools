@@ -23,6 +23,8 @@ TempDBInfo – shows detailed information on current state of TempDB database, f
 
 ViewSessionsConnections – use this to learn details about sessions connected to your system.
 
+ViewRunningJobs - shows currently running jobs, along with current step information and duration
+
 --------------------------------------------------------------------------------------------------------------------------------------
 
 Detailed instructions:
