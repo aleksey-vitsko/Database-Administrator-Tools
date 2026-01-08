@@ -6,27 +6,40 @@ create or alter procedure ServerSpaceUsage as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.06
+Version: 1.08
 
 Description: this procedure shows size information for each database on the instance
 Shows total size and total space used for each data file / log file for each database
 
-History
+History:
 
-2024-08-15 --> Aaron Bertrand - cast dSpaceUsedMB to decimal(16,2) instead of (8,2), as it can overflow on big databases
-2023-08-04 --> Aleksey Vitsko - increased "dType_Desc" to nvarchar(60) to match sys.master_files and resolve error in Azure SQL Managed Instance
-2022-09-08 --> Aleksey Vitsko - added a warning for OFFLINE databases (unable to get data/log file fullness)
-2022-09-08 --> Aleksey Vitsko - updated column names in the output for consistency
-2022-09-08 --> Aleksey Vitsko - properly show log file size and total database size for OFFLINE state databases 
-2022-09-07 --> Aleksey Vitsko - use sys.master_files instead of cycling through each database's sys.database_files
-2019-02-07 --> Aleksey Vitsko - added drive / volume space usage info in the output
-2018-01-15 --> Aleksey Vitsko - created procedure
+2026-01-08	->	Aleksey Vitsko	- added "tested on SQL 2016-2025 and SQL MI"; replaced - - comments by /* */
+2026-01-07	->	Aleksey Vistko	- use sys.database_files instead of sys.master_files for tempdb (to resolve incorrect size calculation on SQL MI)
+2024-08-15	->	Aaron Bertrand	- cast dSpaceUsedMB to decimal(16,2) instead of (8,2), as it can overflow on big databases
+2023-08-04	->	Aleksey Vitsko	- increased "dType_Desc" to nvarchar(60) to match sys.master_files and resolve error in Azure SQL Managed Instance
+2022-09-08	->	Aleksey Vitsko	- added a warning for OFFLINE databases (unable to get data/log file fullness)
+2022-09-08	->	Aleksey Vitsko	- updated column names in the output for consistency
+2022-09-08	->	Aleksey Vitsko	- properly show log file size and total database size for OFFLINE state databases 
+2022-09-07	->	Aleksey Vitsko	- use sys.master_files instead of cycling through each database's sys.database_files
+2019-02-07	->	Aleksey Vitsko	- added drive / volume space usage info in the output
+2018-01-15	->	Aleksey Vitsko	- created procedure
+
+
+Tested on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (CTP)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+
+
+Doesn't work on:
+
+- Azure SQL Database
 
 
 ****************************************************************************************************************************************/
 
 
--- temp tables
+/* temp tables */
 if object_ID('TempDB..#DatabasesAndFiles') is not NULL begin drop table #DatabasesAndFiles end
 if object_ID('TempDB..#DBCCSQLPerfLogSpace') is not NULL begin drop table #DBCCSQLPerfLogSpace end
 if object_ID('TempDB..#Results') is not NULL begin drop table #Results end
@@ -75,7 +88,7 @@ create table #Results (
 
 
 
--- get details for database data/log files
+/* get details for database data/log files */
 insert into #DatabasesAndFiles (dDB_ID, dType_Desc, dPhysical_Path, dLogical_FileName, dSizeMB, dMax_SizeMB, dGrowth_MB_or_Pct, dGrowthOption)
 select 
 	database_id,
@@ -93,9 +106,33 @@ select
 		else 'Percent %' 
 	end 
 from sys.master_files
+where	database_id <> 2		/* exclude tempdb */
 
 
--- get database name
+
+
+/* tempdb */
+insert into #DatabasesAndFiles (dDB_ID, dType_Desc, dPhysical_Path, dLogical_FileName, dSizeMB, dMax_SizeMB, dGrowth_MB_or_Pct, dGrowthOption)
+select 
+	2,
+	[type_desc], 
+	physical_name, 
+	[name], 
+	size / 128, 
+	case max_size 
+		when -1 then -1 
+		else cast(max_size as bigint) / 128 
+	end, 
+	growth, 
+	case is_percent_growth 
+		when 0 then 'Fixed Space' 
+		else 'Percent %' 
+	end 
+from tempdb.sys.database_files
+
+
+
+/* get database name */
 update #DatabasesAndFiles
 	set dDB_Name = [name]
 from #DatabasesAndFiles
@@ -104,7 +141,7 @@ from #DatabasesAndFiles
 
 
 
--- get space used for each data file
+/* get space used for each data file */
 declare @ExecStatement varchar(500)
 
 set @ExecStatement = 'use [?]; update #DatabasesAndFiles set dSpaceUsedMB = fileproperty(dLogical_FileName,''spaceused'') / 128 where dDB_Name = db_name()'		-- and dType_Desc = ''ROWS''
@@ -140,14 +177,14 @@ where dGrowthOption = 'Fixed Space'
 
 
 
------------------------------------------------- Results Table ------------------------------------------------
+/********************************************************* Results Table ***********************************************/
 
--- populate results table with distinct database list
+/* populate results table with distinct database list */
 insert into #Results (rDB_ID, rDB_Name)
 select distinct dDB_ID, dDB_Name
 from #DatabasesAndFiles
 
--- data files total size and usage
+/* data files total size and usage */
 update #Results
 	set rDataFilesSizeMB = t.DataFilesSizeMB,
 		rDataFilesUsedMB = t.DataFilesUsedMB
@@ -167,7 +204,7 @@ update #Results
 	set rDataFileUsedPct = (rDataFilesUsedMB / rDataFilesSizeMB) * 100
 
 
--- log space
+/* log space */
 insert into #DBCCSQLPerfLogSpace (lDB_Name, lLogSize, lLogSpaceUsedPct, lStatus)
 exec ('dbcc sqlperf (logspace)')
 
@@ -179,7 +216,7 @@ from #Results
 		rDB_Name = lDB_Name
 
 
--- log space for offline databases
+/* log space for offline databases */
 update #Results
 	set rLogFilesSizeMb = t.[LogFilesSizeMB],
 		rLogFilesUsedMB = 0,
@@ -199,13 +236,13 @@ where rLogFilesSizeMB is NULL
 update #Results
 	set rLogFilesUsedMB = rLogFilesSizeMB * rLogFilesUsedPct / 100
 
--- total database size
+/* total database size */
 update #Results
 	set rTotalDBSizeMB = rDataFilesSizeMB + rLogFilesSizeMB
 
 
 
--- OFFLINE database warning
+/* OFFLINE database warning */
 update #Results
 	set Info = 'OFFLINE database - unable to get data/log file fullness'
 from #Results
@@ -217,9 +254,9 @@ from #Results
 
 
 
---------------------------------------------- Show Results ------------------------------------------------
+/*************************************************** Show Results ***********************************************/
 
--- show drive / volume space usage
+/* show drive / volume space usage */
 select 
 	volume_mount_point						[Volume], 
 	count(*)								[Total_Database_Files], 
@@ -236,7 +273,7 @@ order by volume_mount_point
 
 
 
--- show database level information
+/* show database level information */
 select 
 	rDB_Name				[Database_Name], 
 	
@@ -257,7 +294,7 @@ order by rTotalDBSizeMB desc
 
 
 
--- show file level details
+/* show file level details */
 select
 	dDB_ID						[DB_ID],
 	dDB_Name					[Database_Name],
