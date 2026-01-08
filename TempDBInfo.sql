@@ -8,21 +8,23 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.03
+Version: 1.04
 
 Description: this procedure shows what is going on with TempDB at the moment:
 number of TempDB data and log files', their size, fullness (current usage), sessions and tasks that consume TempDB space, 
 break down of how TempDB is currently used (user objects, internal objects, version store, etc.)
 
+
 History:
 
-2022-09-06 --> Aleksey Vitsko - removed @command parameter
-2022-09-06 --> Aleksey Vitsko - updated description of stored procedure, did some cleanup
-2022-09-05 --> Aleksey Vitsko - show "Percentage_Full" for log file in data/log file details section
-2022-09-05 --> Aleksey Vitsko - change order by to "Current_MB desc" for sessions and tasks that use TempDB
-2022-09-05 --> Aleksey Vitsko - updates to TempDB summary info
-2020-08-04 --> Aleksey Vitsko - created procedure
-
+2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, for correct tempdb file sizes on SQL MI 
+2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, to enable compatibility with SQL DB
+2022-09-06 -->	Aleksey Vitsko - removed @command parameter
+2022-09-06 -->	Aleksey Vitsko - updated description of stored procedure, did some cleanup
+2022-09-05 -->	Aleksey Vitsko - show "Percentage_Full" for log file in data/log file details section
+2022-09-05 -->	Aleksey Vitsko - change order by to "Current_MB desc" for sessions and tasks that use TempDB
+2022-09-05 -->	Aleksey Vitsko - updates to TempDB summary info
+2020-08-04 -->	Aleksey Vitsko - created procedure
 
 *************************************************************************************************************************/
 
@@ -97,9 +99,8 @@ select
 	physical_name,
 	state_desc,
 	cast(size as decimal(16,2)) / 128
-from sys.master_files
-where	[database_id] = 2
-		and [type] = 1
+from tempdb.sys.database_files
+where	[type] = 1
 
 
 	
@@ -110,9 +111,9 @@ update #TempDB_Files_SpaceUsage
 		tState_Desc = state_desc,
 		tType_Desc = [type_desc]
 from #TempDB_Files_SpaceUsage
-	join sys.master_files on
+	join tempdb.sys.database_files on
 		tFileID = [file_id]
-		and [database_id] = 2
+		
 
 
 -- data and log file total sizes
