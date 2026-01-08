@@ -32,9 +32,9 @@ History:
 set nocount on
 
 
----------------------------------------------------- Collect TempDB Info --------------------------------------------------
+/************************************************** Collect TempDB Info *****************************************************/
 
--- variables
+/* variables */
 declare 
 	@TempDB_Total_MB					int,
 	
@@ -53,7 +53,7 @@ declare
 
 
 
--- table to hold info related to tempdb data/log files 
+/* table to hold info related to tempdb data/log files */
 drop table if exists #TempDB_Files_SpaceUsage
 
 create table #TempDB_Files_SpaceUsage (
@@ -76,7 +76,7 @@ create table #TempDB_Files_SpaceUsage (
 	tPercentage_Full			decimal(5,2))
 
 
--- data files
+/* data files */
 insert into #TempDB_Files_SpaceUsage (tFileID, tTotal_MB, tAllocated_MB, tUnallocated_MB, tVersionStore_MB, tUserObject_MB, tInternalObject_MB, tMixedExtent_MB, tModifiedExtent_MB)
 select 
 	[file_id],
@@ -91,7 +91,7 @@ select
 from tempdb.sys.dm_db_file_space_usage
 
 
--- log file
+/* log file */
 insert into #TempDB_Files_SpaceUsage (tFileID, tName, tPhysical_Name, tState_Desc, tTotal_MB)
 select 
 	[file_id],
@@ -104,7 +104,7 @@ where	[type] = 1
 
 
 	
--- get file names
+/* get file names */
 update #TempDB_Files_SpaceUsage
 	set tName = [name],
 		tPhysical_Name = physical_name,
@@ -116,7 +116,7 @@ from #TempDB_Files_SpaceUsage
 		
 
 
--- data and log file total sizes
+/* data and log file total sizes */
 select 
 	@DataFile_Total_MB = sum(tTotal_MB),
 	@DataFile_NumberOfFiles = count(*)
@@ -132,14 +132,14 @@ set @TempDB_Total_MB = @DataFile_Total_MB + @LogFile_Total_MB
 
 
 
--- calculate percentage full
+/* calculate percentage full */
 update #TempDB_Files_SpaceUsage
 	set tPercentage_Full = (tAllocated_MB / tTotal_MB) * 100
 
 set @DataFile_SpaceUsed_Percent = (select (sum(tAllocated_MB) / sum(tTotal_MB)) * 100 from #TempDB_Files_SpaceUsage where tType_Desc = 'ROWS')
 
 
--- allocated / unallocated for data file(s)
+/* allocated / unallocated for data file(s) */
 set @DataFile_Allocated_MB = (select sum(tAllocated_MB) from #TempDB_Files_SpaceUsage where tType_Desc = 'ROWS')
 
 set @DataFile_Unallocated_MB = (select sum(tUnallocated_MB) from #TempDB_Files_SpaceUsage where tType_Desc = 'ROWS')
@@ -147,7 +147,7 @@ set @DataFile_Unallocated_MB = (select sum(tUnallocated_MB) from #TempDB_Files_S
 
 
 
--- log space
+/* log space */
 drop table if exists #DBCCSQLPerfLogSpace
 
 create table #DBCCSQLPerfLogSpace (
@@ -184,7 +184,7 @@ end
 
 
 
--- TempDB summary table
+/* TempDB summary table */
 drop table if exists #TempDB_Info 
 
 create table #TempDB_Info (
@@ -204,7 +204,7 @@ values	('Total TempDB size ',cast(@TempDB_Total_MB as varchar) + ' Megabytes ( '
 
 
 
--- sessions that use tempdb 
+/* sessions that use tempdb */
 drop table if exists #TempDB_Sessions
 
 create table #TempDB_Sessions (
@@ -238,7 +238,7 @@ from sys.dm_db_session_space_usage ssu
 
 
 
--- sessions / tasks that use tempdb 
+/* sessions / tasks that use tempdb */
 drop table if exists #TempDB_Tasks
 
 create table #TempDB_Tasks (
@@ -278,13 +278,13 @@ from sys.dm_db_task_space_usage tsu
 
 
 
----------------------------------------------------- Show Data --------------------------------------------------
+/***************************************************8 Show Data ************************************************/
 
--- show summary info
+/* show summary info */
 select * from #TempDB_Info
 
 
--- show summary details
+/* show summary details */
 select
 	@TempDB_Total_MB					[TempDB_Total_MB],
 	
@@ -307,7 +307,7 @@ select
 from #TempDB_Files_SpaceUsage
 
 
--- tempdb data file details
+/* tempdb data file details */
 select
 	tFileID					[File_ID],
 	tType_Desc				[Type_Desc],
@@ -327,7 +327,7 @@ from #TempDB_Files_SpaceUsage
 
 
 
--- sessions that use TempDB
+/* sessions that use TempDB */
 select * 
 from #TempDB_Sessions
 where Current_MB > 0
@@ -335,7 +335,7 @@ order by Current_MB desc
 
 
 
--- tasks that use TempDB
+/* tasks that use TempDB */
 select * 
 from #TempDB_Tasks
 where Current_MB > 0
