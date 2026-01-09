@@ -8,22 +8,26 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.04
+Version: 1.05
 
-Description: this procedure shows what is going on with TempDB at the moment:
-number of TempDB data and log files', their size, fullness (current usage), sessions and tasks that consume TempDB space, 
-break down of how TempDB is currently used (user objects, internal objects, version store, etc.)
+Description: this procedure shows what's going on with TempDB:
+
+Number of TempDB data and log files, their size, fullness, sessions and tasks that consume TempDB space.
+Also, break down of how TempDB is currently used (user objects, internal objects, version store, etc.)
 
 
 History:
 
+2026-01-09 -->	Aleksey Vitsko - refactored the way of showing summary info
 2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, for correct tempdb file sizes on SQL MI 
 2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, to enable compatibility with SQL DB
+
 2022-09-06 -->	Aleksey Vitsko - removed @command parameter
 2022-09-06 -->	Aleksey Vitsko - updated description of stored procedure, did some cleanup
 2022-09-05 -->	Aleksey Vitsko - show "Percentage_Full" for log file in data/log file details section
 2022-09-05 -->	Aleksey Vitsko - change order by to "Current_MB desc" for sessions and tasks that use TempDB
 2022-09-05 -->	Aleksey Vitsko - updates to TempDB summary info
+
 2020-08-04 -->	Aleksey Vitsko - created procedure
 
 *************************************************************************************************************************/
@@ -189,18 +193,15 @@ drop table if exists #TempDB_Info
 
 create table #TempDB_Info (
 	Property			varchar(50),
-	[Value]				varchar(500))
+	Files				int,
+	Size_MB				int,
+	Size_GB				decimal(16,2),
+	Fullness			varchar(50)
+	)
 
-insert into #TempDB_Info (Property, [Value])
-values	('Total TempDB size ',cast(@TempDB_Total_MB as varchar) + ' Megabytes ( ' + cast(@TempDB_Total_MB / 1024 as varchar) + ' GB )'),
-		('Number of data files',cast(@DataFile_NumberOfFiles as varchar) + ' data file(s)'),
-		('Data file total size',cast(@DataFile_Total_MB as varchar) + ' Megabytes (' + cast(@DataFile_Total_MB / 1024 as varchar) + ' GB )'),
-		('Data file usage',cast(@DataFile_Allocated_MB as varchar) + ' Megabytes'),
-		('Current data file fullness (percent)',cast(@DataFile_SpaceUsed_Percent as varchar) + ' %'),
-		('Number of log files',cast(@LogFile_NumberOfFiles as varchar) + ' log file(s)'),
-		('Log file total size',cast(@LogFile_Total_MB as varchar) + ' Megabytes (' + cast(@LogFile_Total_MB / 1024 as varchar) + ' GB )'),
-		('Log file fullness (percent)',cast(@Log_SpaceUsed_Percent as varchar) + ' %')
-
+insert into #TempDB_Info (Property, Files, Size_MB, Size_GB, Fullness)
+values	('Data File(s)',@DataFile_NumberOfFiles, @DataFile_Total_MB, cast(@DataFile_Total_MB as decimal(16,2)) / 1024, cast(@DataFile_SpaceUsed_Percent as varchar) + ' %'),
+		('Log File(s)',@LogFile_NumberOfFiles, @LogFile_Total_MB, cast(@LogFile_Total_MB as decimal(16,2))  / 1024, cast(@Log_SpaceUsed_Percent as varchar) + ' %')
 
 
 
@@ -281,30 +282,8 @@ from sys.dm_db_task_space_usage tsu
 /***************************************************8 Show Data ************************************************/
 
 /* show summary info */
-select * from #TempDB_Info
-
-
-/* show summary details */
-select
-	@TempDB_Total_MB					[TempDB_Total_MB],
-	
-	@DataFile_NumberOfFiles				[Number_Of_Data_Files],
-	@DataFile_Total_MB					[Data_File_Total_MB],
-	@DataFile_SpaceUsed_Percent			[Data_Percentage_Full],
-
-	@LogFile_Total_MB					[Log_File_Total_MB],
-	@LogFile_NumberOfFiles				[Number_Of_Log_Files],
-	@Log_SpaceUsed_Percent				[Log_Full_Pct],
-
-	@DataFile_Allocated_MB				[Allocated_MB],
-	@DataFile_Unallocated_MB			[Unallocated_MB],
-	sum(tVersionStore_MB)				[VersionStore_MB],
-	sum(tUserObject_MB)					[UserObject_MB], 
-	sum(tInternalObject_MB)				[InternalObject_MB],
-	sum(tMixedExtent_MB)				[MixedExtent_MB],
-	sum(tModifiedExtent_MB)				[ModifiedExtent_MB]	
-
-from #TempDB_Files_SpaceUsage
+select * 
+from #TempDB_Info
 
 
 /* tempdb data file details */
@@ -312,9 +291,8 @@ select
 	tFileID					[File_ID],
 	tType_Desc				[Type_Desc],
 	tName					[Name],
-	tPhysical_Name			[Physical_Name],
 	tState_Desc				[State_Desc],
-	tTotal_MB				[Total_MB],
+	tTotal_MB				[Size_MB],
 	tAllocated_MB			[Allocated_MB],
 	tUnallocated_MB			[Unallocated_MB],
 	tVersionStore_MB		[VersionStore_MB],
@@ -322,7 +300,8 @@ select
 	tInternalObject_MB		[InternalObject_MB],
 	tMixedExtent_MB			[MixedExtent_MB],
 	tModifiedExtent_MB		[ModifiedExtent_MB],
-	tPercentage_Full		[Percentage_Full]
+	tPercentage_Full		[Percentage_Full],
+	tPhysical_Name			[Physical_Name]
 from #TempDB_Files_SpaceUsage
 
 
