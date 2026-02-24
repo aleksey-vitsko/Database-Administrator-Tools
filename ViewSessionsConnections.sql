@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.00
+Version: 2.01
 
 
 Description:
@@ -22,6 +22,7 @@ Use this SP to learn details about sessions connected to your instance.
 
 History:
 
+2026-02-23 - Aleksey Vitsko - added compatibility with SQL Server 2016-2017
 2026-02-21 - Aleksey Vitsko - major rewrite of the stored procedure (version 2.0 released)
 2022-08-11 - Aleksey Vitsko - added command "tempdb" (show only sessions that currently consume tempdb)
 2022-08-11 - Aleksey Vitsko - added "tempdb_session_kb" and "tempdb_task_kb" columns (show tempdb consumption by session)
@@ -31,6 +32,17 @@ History:
 2018-05-08 - Aleksey Vitsko - added support for db_user_name
 2018-05-07 - Aleksey Vitsko - added support for blocking_sql_text 
 2018-05-03 - Aleksey Vitsko - created procedure
+
+
+Tested on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (RTM)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+- Azure SQL Database
+
+
+Fast enough on SQL 2016-2025, SQL MI and SQL DB (vCore-based)
+Can be slow on small DTU-based Azure SQL DBs
 
 
 ***********************************************************************************************************************************************
@@ -372,6 +384,13 @@ Supported commands (@command parameter):
 
 	end
 
+
+	/* for SQL Server 2016-2017 */
+	if @Version in ('2016','2017') begin
+
+		set @SQL = replace(@SQL,'--s.page_server_reads,','')
+
+	end
 
 
 
