@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.02
+Version: 2.03
 
 
 Description:
@@ -22,6 +22,7 @@ Use this SP to learn details about sessions connected to your instance.
 
 History:
 
+2026-02-25 - Aleksey Vitsko - added "blocking_sql_text" column to output
 2026-02-25 - Aleksey Vitsko - bugfix related to "memory grant" command mode
 2026-02-23 - Aleksey Vitsko - added compatibility with SQL Server 2016-2017
 2026-02-21 - Aleksey Vitsko - major rewrite of the stored procedure (version 2.0 released)
@@ -309,7 +310,8 @@ Supported commands (@command parameter):
 		r.blocking_session_id,
 		cast ('''' as nvarchar(128))							[blocking_login_name],
 
-		t.[text]			[sql_text                                                                                             ]
+		t.[text]			[sql_text                                                                                             ],
+		cast (NULL as nvarchar(max))							[blocking_sql_text]
 
 	into ##ViewSessionsConnections
 	from sys.dm_exec_sessions s
@@ -486,6 +488,13 @@ Supported commands (@command parameter):
 			end
 	where	blocking_session_id < 0
 
+
+	/* blocking sql text */
+	update main 
+		set main.blocking_sql_text = blocking.sql_text 
+	from ##ViewSessionsConnections main
+		left join ##ViewSessionsConnections blocking on
+			main.blocking_session_id = blocking.[session_id]
 
 
 
