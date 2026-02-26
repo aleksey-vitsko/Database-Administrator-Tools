@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.01
+Version: 2.02
 
 
 Description:
@@ -22,8 +22,10 @@ Use this SP to learn details about sessions connected to your instance.
 
 History:
 
+2026-02-25 - Aleksey Vitsko - bugfix related to "memory grant" command mode
 2026-02-23 - Aleksey Vitsko - added compatibility with SQL Server 2016-2017
 2026-02-21 - Aleksey Vitsko - major rewrite of the stored procedure (version 2.0 released)
+
 2022-08-11 - Aleksey Vitsko - added command "tempdb" (show only sessions that currently consume tempdb)
 2022-08-11 - Aleksey Vitsko - added "tempdb_session_kb" and "tempdb_task_kb" columns (show tempdb consumption by session)
 2022-08-10 - Aleksey Vitsko - added output mode "memory grant" (will show only sessions that have memory grants)
@@ -191,10 +193,8 @@ Supported commands (@command parameter):
 		r.cpu_time										[cpu_time_ms (request)],			/* CPU time in milliseconds that is used by the request */
 	
 		s.memory_usage * 8								[memory_kb (session)],			/* Number of 8-KB pages of memory used by this session. */	
-		r.granted_query_memory * 8						[granted_query_memory_kb (request)],	/* Number of pages allocated to the execution of a query on the request */				
-
-		qmg.requested_memory_kb							[memory_grant_requested_kb],		
-		qmg.granted_memory_kb							[memory_grant_granted_kb],															/* Total amount of memory actually granted in kilobytes */
+		qmg.requested_memory_kb							[requested_memory_kb],		
+		qmg.granted_memory_kb							[granted_memory_kb],															/* Total amount of memory actually granted in kilobytes */
 		--qmg.used_memory_kb,															/* Physical memory used at this moment in kilobytes */
 		--qmg.max_used_memory_kb,														/* Maximum physical memory used up to this moment in kilobytes */
 		--qmg.query_cost,																/* Estimated query cost */
@@ -307,6 +307,7 @@ Supported commands (@command parameter):
 		--r.parallel_worker_count,
 
 		r.blocking_session_id,
+		cast ('''' as nvarchar(128))							[blocking_login_name],
 
 		t.[text]			[sql_text                                                                                             ]
 
@@ -463,7 +464,32 @@ Supported commands (@command parameter):
 
 
 
+	/* resolve blocking login names or reasons */
+	update blocked
+		set blocked.blocking_login_name = isnull(blocking.login_name,'')
+	from ##ViewSessionsConnections blocked
 
+		join ##ViewSessionsConnections blocking on
+			blocked.blocking_session_id = blocking.[session_id]
+
+	where	blocked.blocking_session_id is not NULL
+			and blocked.blocking_session_id <> 0
+
+	
+	update ##ViewSessionsConnections
+		set blocking_login_name = 
+			case 
+				when blocking_session_id = -2 then 'Orphaned distributed transaction'
+				when blocking_session_id = -3 then 'Deferred recovery transaction'
+				when blocking_session_id = -4 then 'Session_id of the blocking latch owner couldnt be determined at this time because of internal latch state transitions'
+				when blocking_session_id = -5 then 'Session is waiting on an asynchronous action to complete'
+			end
+	where	blocking_session_id < 0
+
+
+
+
+	/*************************************************************** Show Data ***************************************************************/
 
 	/* show summary */
 	if @Command = 'summary' begin
