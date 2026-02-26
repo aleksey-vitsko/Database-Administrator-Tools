@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.03
+Version: 2.1.3
 
 
 Description:
@@ -22,6 +22,8 @@ Use this SP to learn details about sessions connected to your instance.
 
 History:
 
+2026-02-26 - Aleksey Vitsko - added "db_user_names" column to output
+2025-02-25 - Aleksey Vitsko - properly resolve database name for sessions with "Resource Database" database_id
 2026-02-25 - Aleksey Vitsko - added "blocking_sql_text" column to output
 2026-02-25 - Aleksey Vitsko - bugfix related to "memory grant" command mode
 2026-02-23 - Aleksey Vitsko - added compatibility with SQL Server 2016-2017
@@ -45,7 +47,7 @@ Tested on:
 
 
 Fast enough on SQL 2016-2025, SQL MI and SQL DB (vCore-based)
-Can be slow on small DTU-based Azure SQL DBs
+Can be slow on small DTU-based Azure SQL DBs (on first run)
 
 
 ***********************************************************************************************************************************************
@@ -101,7 +103,10 @@ Supported commands (@command parameter):
 
 
 	/* determine database engine version */
-	declare @Version varchar(10)
+	declare 
+		@Version varchar(10),
+		@EngineEdition int
+
 
 		select @Version = 
 			case
@@ -115,6 +120,8 @@ Supported commands (@command parameter):
 				else substring(@@VERSION,22,4)
 		end
 
+
+		set @EngineEdition = cast((select serverproperty('EngineEdition')) as int)
 
 
 
@@ -130,22 +137,24 @@ Supported commands (@command parameter):
 		--s.database_id,
 		case s.database_id 
 			when 0 then ''''
+			when 32765 then ''Resource Database''
 			else db_name(s.database_id)					
-		end											[database_name],
+		end												[database_name],
 
 		s.login_name,
 		s.original_login_name,
 	
 	
-		sp.[type_desc]								[principal_type],
-		--osp.[type_desc]							[original_principal_type],	
+		sp.[type_desc]									[server_principal_type],
+		--osp.[type_desc]								[original_principal_type],	
 
-		--sp.principal_id							[server_principal_id],
-		--osp.principal_id							[original_server_principal_id],
+		--sp.principal_id								[server_principal_id],
+		--osp.principal_id								[original_server_principal_id],
 
 		s.security_id,
 		--s.original_security_id,
 
+		cast('''' as nvarchar(128))						[db_user_name],
 
 		s.host_process_id,
 		s.[host_name],
@@ -373,7 +382,7 @@ Supported commands (@command parameter):
 
 
 	/* for Azure SQL Database */
-	if (select serverproperty('EngineEdition')) = 5 begin
+	if @EngineEdition = 5 begin
 
 		set @SQL = replace(@SQL,'s.endpoint_id,','')
 	
@@ -411,31 +420,64 @@ Supported commands (@command parameter):
 
 
 
-
+	/* get the database users */
 	
-	/*** get database users
-	begin try
-		exec sp_MSforeachdb 'USE [?]; update #SessionsConnections set db_user_name = [name] from #SessionsConnections join sys.database_principals on [uid] = principal_id where [db_name] = db_name()'
-	end try
+	/* not in Azure SQL DB */
+	if @EngineEdition <> 5 begin
+	
+		drop table if exists #Databases 
 
-	begin catch
-		update #SessionsConnections 
-			set db_user_name = [name] 
-		from #SessionsConnections 
-			join sys.database_principals on 
-				[uid] = principal_id 
-		where [db_name] = db_name()
-	end catch
+		create table #Databases (
+			RowID					int primary key identity,
+			[Database_Name]			nvarchar(128),	
+			SQL_Query				nvarchar(max)
+			)
+
+		insert into #Databases ([Database_Name])
+		select 
+			distinct [database_name]
+		from ##ViewSessionsConnections 
+		where [database_name] <> ''
+		order by [database_name]
+
+		update #Databases
+			set SQL_Query = 'update ##ViewSessionsConnections set db_user_name = dp.[name] from ##ViewSessionsConnections join [' + [Database_Name] + '].sys.database_principals dp on security_id = sid where [database_name] = ''' + [Database_Name] + ''''
+
+		declare @i int = 1
+
+		while @i <= (select max(RowID) from #Databases) begin
+
+			set @SQL = (select SQL_Query from #Databases where RowID = @i)
+
+			exec(@SQL)
+
+			set @i = @i + 1
+
+		end
+
+	end
 
 
-	update #SessionsConnections
+	/* in Azure SQL DB */
+	if @EngineEdition = 5 begin
+		
+		update ##ViewSessionsConnections 
+			set db_user_name = dp.[name] 
+		from ##ViewSessionsConnections 
+			join sys.database_principals dp on 
+				security_id = sid
+
+	end
+
+
+	update ##ViewSessionsConnections
 		set db_user_name = 'dbo'
-	where	original_login_name = 'sa'
-			and db_user_name is NULL
+	where	[database_name] not in ('','Resource Database')
+			and login_name = 'sa'
+			and db_user_name = ''
 
-	***/
 
-	
+		
 
 	/*
 	-- get connections without sessions
@@ -661,6 +703,11 @@ where database_id = 0
 
 select * from sys.databases
 
+
+select * from sys.sysprocesses where spid in (86,103,98,91,96,170)
+
+
+select * from sys.database_principals where sid = 0x010100000000000512000000
 
 
 
