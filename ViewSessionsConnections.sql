@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 2.1.3
+Version: 2.1.4
 
 
 Description:
@@ -22,6 +22,7 @@ Use this SP to learn details about sessions connected to your instance.
 
 History:
 
+2026-03-03 - Aleksey Vitsko - supply sql_handle into sys.dm_exec_sql_text to get query text for "create index" commands
 2026-02-26 - Aleksey Vitsko - added "db_user_names" column to output
 2025-02-25 - Aleksey Vitsko - properly resolve database name for sessions with "Resource Database" database_id
 2026-02-25 - Aleksey Vitsko - added "blocking_sql_text" column to output
@@ -376,7 +377,7 @@ Supported commands (@command parameter):
 		left join sys.server_principals sp on
 			s.security_id = sp.[sid]
 
-		outer apply sys.dm_exec_sql_text (r.plan_handle) t'
+		outer apply sys.dm_exec_sql_text (r.sql_handle) t'
 
 
 
