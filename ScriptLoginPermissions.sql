@@ -1,63 +1,80 @@
 
 
-
 create or alter procedure ScriptLoginPermissions (
-	@PrincipalName				varchar(150),
-	@ShowSystemPermissions		bit = 0
-	) as begin
-
-set nocount on
+	@PrincipalName					varchar(150),
+	@ShowSystemPermissions			bit = 0
+	) 
+	
+as begin
 
 
 /********************************************************* SCRIPT LOGIN PERMISSIONS PROCEDURE *****************************************************
 
 Author: Aleksey Vitsko
 
-Version: 1.17
+Version: 1.18
 
-Description: scripts server-level and database-level (database, schema, object, column) permissions for specified login
-Result can be copy-pasted and used to recreate these permissions on a different server. 
-Also, SP can be used to simply check permissions for a login, to see what she can or cannot do with certain securables.
+Description: scripts server-level and database-level permissions for a specified login.
+
+Results can be copy-pasted and used to recreate these permissions on a different server. 
+Also, SP can be used to check permissions for a login, to confirm what this login can do.
 
 
 History:
 
---> 2025-04-14 - Aleksey Vitsko - resolve issue with sys.login_token under "execute as" if the user did not have permission to current database
---> 2024-12-12 - Aleksey Vitsko - added ability to view permissions on system objects using the @ShowSystemObject parameter
---> 2024-12-12 - Aleksey Vitsko - sort databases by name for database-level permissions
---> 2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
---> 2024-12-12 - Aleksey Vitsko - added support for viewing server- and database- level permissions for Public roles
---> 2024-12-09 - Aleksey Vitsko - added support for server-level permissions on endpoints 
---> 2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
---> 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
---> 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
---> 2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
---> 2022-09-15 - Aleksey Vitsko - add schema names as a prefix to object names
---> 2020-01-06 - Aleksey Vitsko - even if login is sysadmin, still show all other permissions (were not shown before)
---> 2019-02-01 - Aleksey Vitsko - added support for master, msdb, model databases
---> 2019-02-01 - Aleksey Vitsko - look into ONLINE state databases only
---> 2018-12-05 - Aleksey Vitsko - fixed bug related to xp_logininfo sp and SQL logins
---> 2018-11-19 - Aleksey Vitsko - added support for Active Directory group login membership: show information about AD group memberships
---> 2018-11-19 - Aleksey Vitsko - added support for column level permissions
---> 2018-05-01 - Aleksey Vitsko - created procedure
+2026-03-02 - Aleksey Vitsko - formatting changes
+2026-03-02 - Aleksey Vitsko - added "tested on SQL 2016-2025" section
+
+2025-04-14 - Aleksey Vitsko - resolve issue with sys.login_token under "execute as" if the user doesn't have permission to current database
+2024-12-12 - Aleksey Vitsko - added ability to view permissions on system objects using the @ShowSystemObject parameter
+2024-12-12 - Aleksey Vitsko - sort databases by name for database-level permissions
+2024-12-12 - Aleksey Vitsko - renamed @LoginName -> @PrincipalName (we can check not only permissions for logins, but also for roles, groups, etc.)
+2024-12-12 - Aleksey Vitsko - added support for viewing server- and database- level permissions for Public roles
+2024-12-09 - Aleksey Vitsko - added support for server-level permissions on endpoints 
+2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
+2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
+2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
+2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
+2022-09-15 - Aleksey Vitsko - add schema names as a prefix to object names
+2020-01-06 - Aleksey Vitsko - even if login is sysadmin, still show all other permissions (were not shown before)
+2019-02-01 - Aleksey Vitsko - added support for master, msdb, model databases
+2019-02-01 - Aleksey Vitsko - look into ONLINE state databases only
+2018-12-05 - Aleksey Vitsko - fixed bug related to xp_logininfo sp and SQL logins
+2018-11-19 - Aleksey Vitsko - added support for Active Directory group login membership: show information about AD group memberships
+2018-11-19 - Aleksey Vitsko - added support for column level permissions
+2018-05-01 - Aleksey Vitsko - created procedure
+
+
+Tested / works on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (RTM)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+
+
+Doesn't work on:
+
+- Azure SQL Database
 
 
 *******************************************************************************************************************************************************/
 
+set nocount on
 
 
--------------------------------------------------------------------- Variables  -----------------------------------------------------------------------
+/***************************************************************** Variables  **************************************************************************/
 
--- variables
+/* variables */
 declare 
 	@server_principal_id		smallint, 
+	
 	@sid						varbinary(150), 
 	@sid_varchar				varchar(150),
+
 	@database_principal_id		smallint, 
 	@database_user_name			varchar(150), 
+
 	@database_name				varchar(150), 
-	@sql						nvarchar(max),
-	@EngineEdition				varchar(300) = cast(serverproperty('EngineEdition') as varchar(300))
+	@sql						nvarchar(max)
 
 
 declare @user_info table (
@@ -90,7 +107,7 @@ create table #login_token  (
 	)
 
 
--- result table that will contain all statements
+/* results table that will contain all statements */
 declare @Result table (
 	SQLStatement			varchar(max))
 
@@ -101,33 +118,32 @@ declare @Result_temp table (
 
 	
 
--------------------------------------------------------------------- Main Logic  -----------------------------------------------------------------------
+/********************************************************************** Main Logic  ********************************************************************/
 
-	-- check if specified login exists
+	/* check if specified login exists */
 	if not exists (select * from sys.server_principals where name = @PrincipalName) begin
-		print 'Specified principal -- ' + @PrincipalName + ' -- does not exist'
+		print 'Specified principal -> ' + @PrincipalName + ' <- does not exist'
 		return
 	end 
 
 
-	-- insert login name
+	/* insert login name */
 	insert into @Result (SQLStatement)
-	select '------------------------ ' + @PrincipalName +  ' --------------------------'
+	select '/* Login Name: ' + @PrincipalName +  ' */'
 	
 	insert into @Result (SQLStatement)
 	select ''
 
-	-- login type
+	/* login type */
 	insert into @Result (SQLStatement)
-	select '-- Principal Type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @PrincipalName)
+	select '/* Principal Type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @PrincipalName) + ' */'
 
 	insert into @Result (SQLStatement)
 	select ''
 
 
 
-	-- login token
-	--if @PrincipalName not in ('public') begin 
+	/* login token */
 	
 		begin try
 		
@@ -155,10 +171,10 @@ declare @Result_temp table (
 		if (select count(*) from #login_token) > 0 begin
 
 			insert into @Result (SQLStatement)
-			select '-- Group membership:' 
+			select '/* Group membership: */' 
 
 			insert into @Result (SQLStatement)
-			select '-- ' + quotename(@PrincipalName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) --+ ' -- (' + lower(usage) + ')'
+			select '/* ' + quotename(@PrincipalName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) + ' */'
 			from #login_token
 		
 			insert into @Result (SQLStatement)
@@ -166,9 +182,8 @@ declare @Result_temp table (
 
 		end
 
-	--end
-
-	-- get sid, principal_id of login
+	
+	/* get sid, principal_id of the login */
 	select	@sid = [sid],
 			@server_principal_id = [principal_id]
 	from sys.server_principals 
@@ -177,7 +192,7 @@ declare @Result_temp table (
 	set @sid_varchar = convert(varchar(max), @sid, 1 )
 	
 
-	-- get server level permissions
+	/* get server level permissions */
 	insert into @Result (SQLStatement)
 	select 'use [master]  /* Server-level permissions */'
 
@@ -197,7 +212,7 @@ declare @Result_temp table (
 
 
 	
-	-- for sysadmins, special treatment
+	/* for sysadmins, special treatment */
 	if exists (select * 
 				from sys.server_role_members srm
 					join sys.server_principals sp on
@@ -209,15 +224,15 @@ declare @Result_temp table (
 		select 'alter server role [sysadmin] add member [' + @PrincipalName + ']'
 
 		insert into @Result (SQLStatement)
-		select '-- !!! WARNING: [' + @PrincipalName + ']' + ' is a member of SYSADMIN server role'
+		select '/* !!! WARNING: [' + @PrincipalName + ']' + ' is a member of SYSADMIN server role */'
 
 		insert into @Result (SQLStatement)
-		select '-- !!! WARNING: [' + @PrincipalName + ']' + ' can do everything on this instance, you can ignore below permissions'
+		select '*/ !!! WARNING: [' + @PrincipalName + ']' + ' can do everything on this instance, you can ignore below permissions */'
 						
 	end
 	
 
-	-- server role membership
+	/* server role membership */
 	if exists (select * 
 				from sys.server_role_members srm
 					join sys.server_principals sp on
@@ -233,7 +248,8 @@ declare @Result_temp table (
 	end
 
 	
-	---------------------- database cursor ------------------------
+
+	/************** database cursor ****************/
 
 	declare Database_Cursor cursor local fast_forward for
 	select [name]
@@ -265,19 +281,19 @@ declare @Result_temp table (
 		end 
 
 
-		-- if no database principal found for this login, move to next database
+		/* if no database principal found for this login, move to next database */
 		if (select Indicator from @user_info) = 0 begin 
 			goto next_database
 		end
 
-		-- get current db user name / principal id for current login
+		/* get current db user name / principal id for current login */
 		select 
 			@database_principal_id = principal_id, 
 			@database_user_name	= [name]
 		from @user_info
 
 
-		-- create in current db for current login
+		/* create in current db for current login */
 		insert into @Result (SQLStatement)
 		select 'use ' + quotename(@database_name)
 		union select ''
@@ -298,7 +314,7 @@ declare @Result_temp table (
 		end
 
 		
-		-- database role membership
+		/* database role membership */
 		set @sql = 'select p.[name]
 		from ' + quotename(@database_name) + '.sys.database_role_members drm
 			join ' + quotename(@database_name) + '.sys.database_principals p on
@@ -309,13 +325,13 @@ declare @Result_temp table (
 		exec (@sql)
 
 
-		-- insert add db role member statements
+		/* insert add db role member statements */
 		insert into @Result (SQLStatement)
 		select 'alter role [' + db_role_name + '] add member [' + @database_user_name + ']'
 		from @database_roles
 
 		
-		-- database level permissions
+		/* database level permissions */
 		if @ShowSystemPermissions = 0 begin
 		
 			set @sql = 'select class_desc, 
@@ -408,33 +424,33 @@ declare @Result_temp table (
 		exec (@sql)
 
 		
-		-- insert database level permissions into result table
+		/* insert database level permissions into result table */
 		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'DATABASE'
 
-		-- schema level permissions 
+		/* schema level permissions */ 
 		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' on schema::[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'SCHEMA'
 
-		-- object level permissions
+		/* object level permissions */
 		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' on [' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is NULL
 
-		-- column level permissions
+		/* column level permissions */
 		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' on [' + [schema_name] + '].[' + [object_name] + '] ([' + column_name + '])' + ' to [' + @database_user_name + ']'
 		from @database_permissions
 		where	class_desc = 'OBJECT_OR_COLUMN'
 				and column_name is not NULL
 
-		-- permissions for types
+		/* permissions for types */
 		insert into @Result_temp (SQLStatement)
 		select state_desc + ' ' + [permission_name] + ' on type::[' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
@@ -442,13 +458,13 @@ declare @Result_temp table (
 
 
 
-		-- replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
+		/* replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION" */
 		update @Result_temp
 			set SQLStatement = replace(SQLStatement,'GRANT_WITH_GRANT_OPTION','GRANT') + ' WITH GRANT OPTION'
 		where SQLStatement like 'GRANT_WITH_GRANT_OPTION%'
 
 
-		-- sort the permissions before inserting into @Result
+		/* sort the permissions before inserting into @Result */
 		insert into @Result (SQLStatement)
 		select SQLStatement 
 		from @Result_temp
@@ -457,17 +473,17 @@ declare @Result_temp table (
 
 
 
-		-- next database
+		/* next database */
 		next_database:
 
-		-- clean db user info
+		/* clean db user info */
 		delete from @user_info
 		delete from @database_roles
 		delete from @database_permissions
 		delete from @Result_temp
 
 
-		-- next database
+		/* next database */
 		fetch next from Database_Cursor
 		into @database_name
 		
@@ -478,12 +494,12 @@ declare @Result_temp table (
 
 
 	
--- show results
+/* show results */
 select * from @Result
 
 
 
-end				-- procedure logic end
+end				/* procedure logic end */
 
 
 
