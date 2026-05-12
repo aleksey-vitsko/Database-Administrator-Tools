@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.18
+Version: 1.20
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-05-12 - Aleksey Vitsko - added support for AVAILABILITY GROUP and SERVER_PRINCIPAL permissions
 2026-03-02 - Aleksey Vitsko - formatting changes
 2026-03-02 - Aleksey Vitsko - added "tested on SQL 2016-2025" section
 
@@ -203,12 +204,40 @@ declare @Result_temp table (
 			and class_desc = 'SERVER'
 
 	insert into @Result (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ENDPOINT::[' + e.[name] + '] to [' + @PrincipalName + ']'
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + e.[name] + '] to [' + @PrincipalName + ']'
 	from sys.server_permissions sp
 		join sys.endpoints e on 
 			major_id = endpoint_id
 	where	grantee_principal_id = @server_principal_id
 			and class_desc = 'ENDPOINT'
+
+	insert into @Result (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + ag.[name] + '] to [' + @PrincipalName + ']'
+	from sys.server_permissions sp
+		join sys.availability_groups ag on 
+			major_id = 65536								/* doesn't look like there is a way to tie to a specific group */
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'AVAILABILITY GROUP'
+
+
+	insert into @Result (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ' 
+		+ case srvp.type_desc 
+			when 'SQL_LOGIN' then 'LOGIN'
+			when 'SERVER_ROLE' then 'SERVER ROLE'
+		end
+		+ '::[' + srvp.[name] + '] to [' + @PrincipalName + ']'
+	from sys.server_permissions sp
+		join sys.server_principals srvp on 
+			major_id = srvp.principal_id
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'SERVER_PRINCIPAL'
+
+
+	update @Result
+		set SQLStatement = replace(SQLStatement,'GRANT_WITH_GRANT_OPTION','GRANT') + ' WITH GRANT OPTION'
+	where SQLStatement like '%GRANT_WITH_GRANT_OPTION%'
+
 
 
 	
