@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.20
+Version: 1.21
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-05-12 - Aleksey Vitsko - sort server-level permissions
 2026-05-12 - Aleksey Vitsko - added support for AVAILABILITY GROUP and SERVER_PRINCIPAL permissions
 2026-03-02 - Aleksey Vitsko - formatting changes
 2026-03-02 - Aleksey Vitsko - added "tested on SQL 2016-2025" section
@@ -35,7 +36,7 @@ History:
 2023-12-01 - Aleksey Vitsko - use "sys.login_token" instead of "xp_logininfo" to resolve group membership
 2022-09-16 - Aleksey Vitsko - add square brackets to schema names and object names
 2022-09-15 - Aleksey Vitsko - replace "GRANT_WITH_GRANT_OPTION " by " WITH GRANT OPTION"
-2022-09-15 - Aleksey Vitsko - sort the database-level (database, schema, object, column) permissions
+2022-09-15 - Aleksey Vitsko - sort database-level (database, schema, object, column) permissions
 2022-09-15 - Aleksey Vitsko - add schema names as a prefix to object names
 2020-01-06 - Aleksey Vitsko - even if login is sysadmin, still show all other permissions (were not shown before)
 2019-02-01 - Aleksey Vitsko - added support for master, msdb, model databases
@@ -193,54 +194,10 @@ declare @Result_temp table (
 	set @sid_varchar = convert(varchar(max), @sid, 1 )
 	
 
-	/* get server level permissions */
+	/* server-level permissions */
 	insert into @Result (SQLStatement)
 	select 'use [master]  /* Server-level permissions */'
 
-	insert into @Result (SQLStatement)
-	select state_desc + ' ' + [permission_name] + ' to [' + @PrincipalName + ']'
-	from sys.server_permissions
-	where	grantee_principal_id = @server_principal_id
-			and class_desc = 'SERVER'
-
-	insert into @Result (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + e.[name] + '] to [' + @PrincipalName + ']'
-	from sys.server_permissions sp
-		join sys.endpoints e on 
-			major_id = endpoint_id
-	where	grantee_principal_id = @server_principal_id
-			and class_desc = 'ENDPOINT'
-
-	insert into @Result (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + ag.[name] + '] to [' + @PrincipalName + ']'
-	from sys.server_permissions sp
-		join sys.availability_groups ag on 
-			major_id = 65536								/* doesn't look like there is a way to tie to a specific group */
-	where	grantee_principal_id = @server_principal_id
-			and class_desc = 'AVAILABILITY GROUP'
-
-
-	insert into @Result (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ' 
-		+ case srvp.type_desc 
-			when 'SQL_LOGIN' then 'LOGIN'
-			when 'SERVER_ROLE' then 'SERVER ROLE'
-		end
-		+ '::[' + srvp.[name] + '] to [' + @PrincipalName + ']'
-	from sys.server_permissions sp
-		join sys.server_principals srvp on 
-			major_id = srvp.principal_id
-	where	grantee_principal_id = @server_principal_id
-			and class_desc = 'SERVER_PRINCIPAL'
-
-
-	update @Result
-		set SQLStatement = replace(SQLStatement,'GRANT_WITH_GRANT_OPTION','GRANT') + ' WITH GRANT OPTION'
-	where SQLStatement like '%GRANT_WITH_GRANT_OPTION%'
-
-
-
-	
 	/* for sysadmins, special treatment */
 	if exists (select * 
 				from sys.server_role_members srm
@@ -261,7 +218,7 @@ declare @Result_temp table (
 	end
 	
 
-	/* server role membership */
+	/* server role memberships */
 	if exists (select * 
 				from sys.server_role_members srm
 					join sys.server_principals sp on
@@ -276,6 +233,56 @@ declare @Result_temp table (
 		where srm.member_principal_id = @server_principal_id
 	end
 
+
+	/* server level permissions */
+	insert into @Result_temp (SQLStatement)
+	select state_desc + ' ' + [permission_name] + ' to [' + @PrincipalName + ']'
+	from sys.server_permissions
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'SERVER'
+
+	insert into @Result_temp (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + e.[name] + '] to [' + @PrincipalName + ']'
+	from sys.server_permissions sp
+		join sys.endpoints e on 
+			major_id = endpoint_id
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'ENDPOINT'
+
+	insert into @Result_temp (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + ag.[name] + '] to [' + @PrincipalName + ']'
+	from sys.server_permissions sp
+		join sys.availability_groups ag on 
+			major_id = 65536								/* doesn't look like there is a way to tie to a specific group */
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'AVAILABILITY GROUP'
+
+
+	insert into @Result_temp (SQLStatement)
+	select sp.state_desc + ' ' + [permission_name] + ' on ' 
+		+ case srvp.type_desc 
+			when 'SQL_LOGIN' then 'LOGIN'
+			when 'SERVER_ROLE' then 'SERVER ROLE'
+		end
+		+ '::[' + srvp.[name] + '] to [' + @PrincipalName + ']'
+	from sys.server_permissions sp
+		join sys.server_principals srvp on 
+			major_id = srvp.principal_id
+	where	grantee_principal_id = @server_principal_id
+			and class_desc = 'SERVER_PRINCIPAL'
+
+
+	update @Result_temp
+		set SQLStatement = replace(SQLStatement,'GRANT_WITH_GRANT_OPTION','GRANT') + ' WITH GRANT OPTION'
+	where SQLStatement like '%GRANT_WITH_GRANT_OPTION%'
+
+
+	/* sort server-level permissions before inserting into @Result */
+	insert into @Result (SQLStatement)
+	select SQLStatement 
+	from @Result_temp
+	order by SQLStatement
+	
 	
 
 	/************** database cursor ****************/
