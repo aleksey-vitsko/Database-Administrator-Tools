@@ -1,8 +1,8 @@
 
 
 create or alter procedure ScriptLoginPermissions (
-	@PrincipalName					varchar(150),
-	@ShowSystemPermissions			bit = 0
+	@Server_Principal_Name					varchar(128),
+	@Show_System_Permissions				bit = 0
 	) 
 	
 as begin
@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.21
+Version: 1.22
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-05-13 - Aleksey Vitsko - rename @PrincipalName to @Server_Principal_Name and shorten to 128 symbols to match sys.server_principals
 2026-05-12 - Aleksey Vitsko - sort server-level permissions
 2026-05-12 - Aleksey Vitsko - added support for AVAILABILITY GROUP and SERVER_PRINCIPAL permissions
 2026-03-02 - Aleksey Vitsko - formatting changes
@@ -123,22 +124,22 @@ declare @Result_temp table (
 /********************************************************************** Main Logic  ********************************************************************/
 
 	/* check if specified login exists */
-	if not exists (select * from sys.server_principals where name = @PrincipalName) begin
-		print 'Specified principal -> ' + @PrincipalName + ' <- does not exist'
+	if not exists (select * from sys.server_principals where name = @Server_Principal_Name) begin
+		print 'Specified server principal -> ' + @Server_Principal_Name + ' <- does not exist'
 		return
 	end 
 
 
-	/* insert login name */
+	/* insert server principal name */
 	insert into @Result (SQLStatement)
-	select '/* Login Name: ' + @PrincipalName +  ' */'
+	select '/* Server Principal: ' + @Server_Principal_Name +  ' */'
 	
 	insert into @Result (SQLStatement)
 	select ''
 
-	/* login type */
+	/* server principal type */
 	insert into @Result (SQLStatement)
-	select '/* Principal Type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @PrincipalName) + ' */'
+	select '/* Server Principal Type: ' + (select cast(type_desc as varchar) from sys.server_principals where name = @Server_Principal_Name) + ' */'
 
 	insert into @Result (SQLStatement)
 	select ''
@@ -151,19 +152,19 @@ declare @Result_temp table (
 		
 			set @SQL = 'use master
 
-			execute as login = @_PrincipalName
+			execute as login = @_Server_Principal_Name
 
 			insert into #login_token (tName, tType, tUsage)
 						select
 							distinct [name], [type], usage
 						from sys.login_token
 						where	principal_id <> 0
-								and [name] <> @_PrincipalName
+								and [name] <> @_Server_Principal_Name
 								and [type] <> ''SERVER ROLE''
 
 			revert'
 
-			execute sp_executesql @SQL, N'@_PrincipalName varchar(200)', @_PrincipalName = @PrincipalName
+			execute sp_executesql @SQL, N'@_Server_Principal_Name varchar(200)', @_Server_Principal_Name = @Server_Principal_Name
 
 		end try
 		begin catch
@@ -176,7 +177,7 @@ declare @Result_temp table (
 			select '/* Group membership: */' 
 
 			insert into @Result (SQLStatement)
-			select '/* ' + quotename(@PrincipalName) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) + ' */'
+			select '/* ' + quotename(@Server_Principal_Name) + ' is a member of ' + lower(tType) + ': ' + quotename([tName]) + ' */'
 			from #login_token
 		
 			insert into @Result (SQLStatement)
@@ -185,11 +186,11 @@ declare @Result_temp table (
 		end
 
 	
-	/* get sid, principal_id of the login */
+	/* get sid, principal_id of the principal */
 	select	@sid = [sid],
 			@server_principal_id = [principal_id]
 	from sys.server_principals 
-	where [name] = @PrincipalName 
+	where [name] = @Server_Principal_Name 
 
 	set @sid_varchar = convert(varchar(max), @sid, 1 )
 	
@@ -207,13 +208,13 @@ declare @Result_temp table (
 				where srm.member_principal_id = @server_principal_id) begin
 
 		insert into @Result (SQLStatement)
-		select 'alter server role [sysadmin] add member [' + @PrincipalName + ']'
+		select 'alter server role [sysadmin] add member [' + @Server_Principal_Name + ']'
 
 		insert into @Result (SQLStatement)
-		select '/* !!! WARNING: [' + @PrincipalName + ']' + ' is a member of SYSADMIN server role */'
+		select '/* !!! WARNING: [' + @Server_Principal_Name + ']' + ' is a member of SYSADMIN server role */'
 
 		insert into @Result (SQLStatement)
-		select '*/ !!! WARNING: [' + @PrincipalName + ']' + ' can do everything on this instance, you can ignore below permissions */'
+		select '*/ !!! WARNING: [' + @Server_Principal_Name + ']' + ' can do everything on this instance, you can ignore below permissions */'
 						
 	end
 	
@@ -226,7 +227,7 @@ declare @Result_temp table (
 						and sp.[name] <> 'sysadmin'
 				where srm.member_principal_id = @server_principal_id) begin
 		insert into @Result (SQLStatement)
-		select 'alter server role [' + sp.name + '] add member [' + @PrincipalName + ']'
+		select 'alter server role [' + sp.name + '] add member [' + @Server_Principal_Name + ']'
 		from sys.server_role_members srm
 			join sys.server_principals sp on
 				srm.role_principal_id = sp.principal_id
@@ -236,13 +237,13 @@ declare @Result_temp table (
 
 	/* server level permissions */
 	insert into @Result_temp (SQLStatement)
-	select state_desc + ' ' + [permission_name] + ' to [' + @PrincipalName + ']'
+	select state_desc + ' ' + [permission_name] + ' to [' + @Server_Principal_Name + ']'
 	from sys.server_permissions
 	where	grantee_principal_id = @server_principal_id
 			and class_desc = 'SERVER'
 
 	insert into @Result_temp (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + e.[name] + '] to [' + @PrincipalName + ']'
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + e.[name] + '] to [' + @Server_Principal_Name + ']'
 	from sys.server_permissions sp
 		join sys.endpoints e on 
 			major_id = endpoint_id
@@ -250,7 +251,7 @@ declare @Result_temp table (
 			and class_desc = 'ENDPOINT'
 
 	insert into @Result_temp (SQLStatement)
-	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + ag.[name] + '] to [' + @PrincipalName + ']'
+	select sp.state_desc + ' ' + [permission_name] + ' on ' + class_desc + '::[' + ag.[name] + '] to [' + @Server_Principal_Name + ']'
 	from sys.server_permissions sp
 		join sys.availability_groups ag on 
 			major_id = 65536								/* doesn't look like there is a way to tie to a specific group */
@@ -264,7 +265,7 @@ declare @Result_temp table (
 			when 'SQL_LOGIN' then 'LOGIN'
 			when 'SERVER_ROLE' then 'SERVER ROLE'
 		end
-		+ '::[' + srvp.[name] + '] to [' + @PrincipalName + ']'
+		+ '::[' + srvp.[name] + '] to [' + @Server_Principal_Name + ']'
 	from sys.server_permissions sp
 		join sys.server_principals srvp on 
 			major_id = srvp.principal_id
@@ -302,7 +303,7 @@ declare @Result_temp table (
 	while @@FETCH_STATUS = 0 begin
 
 		/* for regular server principals, match to database users by sid */ 
-		if @PrincipalName not in ('public') begin 
+		if @Server_Principal_Name not in ('public') begin 
 			
 			set @sql = 'if not exists (select * from ' + quotename(@database_name) + '.sys.database_principals where [sid] = ' + @sid_varchar + ') select 0,NULL,NULL else select 1,[name],principal_id from ' + quotename(@database_name) + '.sys.database_principals where [sid] = ' + @sid_varchar 
 			
@@ -311,39 +312,39 @@ declare @Result_temp table (
 		end
 
 		/* for public server principal, don't match by sid; just put in public database role */ 
-		if @PrincipalName = 'public' begin
+		if @Server_Principal_Name = 'public' begin
 			insert into @user_info (Indicator,[name],principal_id)
 			select 1,'public',0
 		end 
 
 
-		/* if no database principal found for this login, move to next database */
+		/* if no database principal found for this server principal, move to next database */
 		if (select Indicator from @user_info) = 0 begin 
 			goto next_database
 		end
 
-		/* get current db user name / principal id for current login */
+		/* get current db user name / principal id for current server principal */
 		select 
 			@database_principal_id = principal_id, 
 			@database_user_name	= [name]
 		from @user_info
 
 
-		/* create in current db for current login */
+		/* create in current db for current server principal */
 		insert into @Result (SQLStatement)
 		select 'use ' + quotename(@database_name)
 		union select ''
 
 
 		/* for most server principals, add create user statement */
-		if @PrincipalName not in ('Public') begin
+		if @Server_Principal_Name not in ('Public') begin
 	
 			insert into @Result (SQLStatement)
-			select 'create user [' + @database_user_name + '] for login [' + @PrincipalName + ']'
+			select 'create user [' + @database_user_name + '] for login [' + @Server_Principal_Name + ']'
 		end
 
 		/* for public server role, just add a note saying that  */
-		if @PrincipalName = 'Public' begin
+		if @Server_Principal_Name = 'Public' begin
 	
 			insert into @Result (SQLStatement)
 			select '/* Public Database role */'
@@ -368,7 +369,7 @@ declare @Result_temp table (
 
 		
 		/* database level permissions */
-		if @ShowSystemPermissions = 0 begin
+		if @Show_System_Permissions = 0 begin
 		
 			set @sql = 'select class_desc, 
 				case class_desc
@@ -409,7 +410,7 @@ declare @Result_temp table (
 		end
 
 
-		if @ShowSystemPermissions = 1 begin
+		if @Show_System_Permissions = 1 begin
 		
 			set @sql = 'select class_desc, 
 				case class_desc
