@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.22
+Version: 1.23
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-05-14 - Aleksey Vitsko - added support for DATABASE_PRINCIPAL permissions
 2026-05-13 - Aleksey Vitsko - rename @PrincipalName to @Server_Principal_Name and shorten to 128 symbols to match sys.server_principals
 2026-05-12 - Aleksey Vitsko - sort server-level permissions
 2026-05-12 - Aleksey Vitsko - added support for AVAILABILITY GROUP and SERVER_PRINCIPAL permissions
@@ -382,6 +383,7 @@ declare @Result_temp table (
 					when ''OBJECT_OR_COLUMN'' then o.[name]
 					when ''SCHEMA'' then s.[name] 
 					when ''TYPE'' then t.[name]
+					when ''DATABASE_PRINCIPAL'' then dpr.[name]
 				end, 
 				[permission_name],
 				state_desc,
@@ -400,6 +402,8 @@ declare @Result_temp table (
 					o.schema_id = os.schema_id
 				left join ' + quotename(@database_name) + '.sys.schemas type_schema on
 					t.schema_id = type_schema.schema_id
+				left join ' + quotename(@database_name) + '.sys.database_principals dpr on
+					dp.major_id = dpr.principal_id
 			where grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
 					and case class_desc
 					when ''OBJECT_OR_COLUMN'' then os.[name]
@@ -423,6 +427,7 @@ declare @Result_temp table (
 					when ''OBJECT_OR_COLUMN'' then coalesce(o.[name],so.[name])
 					when ''SCHEMA'' then s.[name] 
 					when ''TYPE'' then t.[name]
+					when ''DATABASE_PRINCIPAL'' then dpr.[name]
 				end, 
 				[permission_name],
 				state_desc,
@@ -443,15 +448,17 @@ declare @Result_temp table (
 					o.schema_id = os.schema_id
 				left join ' + quotename(@database_name) + '.sys.schemas sos on
 					so.schema_id = sos.schema_id
-
 				left join ' + quotename(@database_name) + '.sys.schemas type_schema on
 					t.schema_id = type_schema.schema_id
+				left join ' + quotename(@database_name) + '.sys.database_principals dpr on
+					dp.major_id = dpr.principal_id
 			where	grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
 					and case class_desc 
 						when ''DATABASE'' then ''DB''
 						when ''OBJECT_OR_COLUMN'' then coalesce(o.[name],so.[name])
 						when ''SCHEMA'' then s.[name] 
 						when ''TYPE'' then t.[name]
+						when ''DATABASE_PRINCIPAL'' then dpr.[name]
 					end is not NULL'
 
 		end
@@ -492,6 +499,12 @@ declare @Result_temp table (
 		select state_desc + ' ' + [permission_name] + ' on type::[' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'TYPE'
+
+		/* permissions for database principals */
+		insert into @Result_temp (SQLStatement)
+		select state_desc + ' ' + [permission_name] + ' on user::[' + [object_name] + '] to [' + @database_user_name + ']'
+		from @database_permissions
+		where class_desc = 'DATABASE_PRINCIPAL'
 
 
 
