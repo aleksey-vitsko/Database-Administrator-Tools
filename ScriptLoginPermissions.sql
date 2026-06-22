@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.24
+Version: 1.25
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-06-22 - Aleksey Vitsko - added support for database-level permissions on certificates
 2026-06-22 - Aleksey Vitsko - differentiate database permissions on database users, roles and application roles
 2026-05-14 - Aleksey Vitsko - added support for DATABASE_PRINCIPAL permissions
 2026-05-13 - Aleksey Vitsko - rename @PrincipalName to @Server_Principal_Name and shorten to 128 symbols to match sys.server_principals
@@ -387,6 +388,7 @@ declare @Result_temp table (
 					when ''SCHEMA'' then s.[name] 
 					when ''TYPE'' then t.[name]
 					when ''DATABASE_PRINCIPAL'' then dpr.[name]
+					when ''CERTIFICATE'' then cert.[name]
 				end, 
 				[permission_name],
 				state_desc,
@@ -408,6 +410,8 @@ declare @Result_temp table (
 					t.schema_id = type_schema.schema_id
 				left join ' + quotename(@database_name) + '.sys.database_principals dpr on
 					dp.major_id = dpr.principal_id
+				left join ' + quotename(@database_name) + '.sys.certificates cert on
+					dp.major_id = cert.certificate_id
 			where grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
 					and case class_desc
 					when ''OBJECT_OR_COLUMN'' then os.[name]
@@ -432,6 +436,7 @@ declare @Result_temp table (
 					when ''SCHEMA'' then s.[name] 
 					when ''TYPE'' then t.[name]
 					when ''DATABASE_PRINCIPAL'' then dpr.[name]
+					when ''CERTIFICATE'' then cert.[name]
 				end, 
 				[permission_name],
 				state_desc,
@@ -457,6 +462,8 @@ declare @Result_temp table (
 					t.schema_id = type_schema.schema_id
 				left join ' + quotename(@database_name) + '.sys.database_principals dpr on
 					dp.major_id = dpr.principal_id
+				left join ' + quotename(@database_name) + '.sys.certificates cert on
+					dp.major_id = cert.certificate_id
 			where	grantee_principal_id = ' + cast(@database_principal_id as varchar) + '
 					and case class_desc 
 						when ''DATABASE'' then ''DB''
@@ -464,6 +471,7 @@ declare @Result_temp table (
 						when ''SCHEMA'' then s.[name] 
 						when ''TYPE'' then t.[name]
 						when ''DATABASE_PRINCIPAL'' then dpr.[name]
+						when ''CERTIFICATE'' then cert.[name]
 					end is not NULL'
 
 		end
@@ -515,6 +523,13 @@ declare @Result_temp table (
 			end + '::[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'DATABASE_PRINCIPAL'
+
+
+		/* certificate permissions */ 
+		insert into @Result_temp (SQLStatement)
+		select state_desc + ' ' + [permission_name] + ' on CERTIFICATE::[' + [object_name] + '] to [' + @database_user_name + ']'
+		from @database_permissions
+		where class_desc = 'CERTIFICATE'
 
 
 
