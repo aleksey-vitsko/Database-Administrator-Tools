@@ -12,7 +12,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.23
+Version: 1.24
 
 Description: scripts server-level and database-level permissions for a specified login.
 
@@ -22,6 +22,7 @@ Also, SP can be used to check permissions for a login, to confirm what this logi
 
 History:
 
+2026-06-22 - Aleksey Vitsko - differentiate database permissions on database users, roles and application roles
 2026-05-14 - Aleksey Vitsko - added support for DATABASE_PRINCIPAL permissions
 2026-05-13 - Aleksey Vitsko - rename @PrincipalName to @Server_Principal_Name and shorten to 128 symbols to match sys.server_principals
 2026-05-12 - Aleksey Vitsko - sort server-level permissions
@@ -92,12 +93,14 @@ declare @database_roles table (
 
 
 declare @database_permissions table (
-	class_desc				varchar(150),
-	[schema_name]			varchar(150),
-	[object_name]			varchar(150),
-	[permission_name]		varchar(150),
-	state_desc				varchar(150),
-	column_name				varchar(150))
+	class_desc							varchar(150),
+	[schema_name]						varchar(150),
+	[object_name]						varchar(150),
+	[permission_name]					varchar(150),
+	state_desc							varchar(150),
+	column_name							varchar(150),
+	database_principal_type_desc		varchar(150)
+	)
 
 
 drop table if exists #login_token
@@ -387,7 +390,8 @@ declare @Result_temp table (
 				end, 
 				[permission_name],
 				state_desc,
-				c.[name] 
+				c.[name],
+				dpr.[type_desc] 
 			from ' + quotename(@database_name) + '.sys.database_permissions dp
 				left join ' + quotename(@database_name) + '.sys.objects o on
 					dp.major_id = o.[object_id]
@@ -431,7 +435,8 @@ declare @Result_temp table (
 				end, 
 				[permission_name],
 				state_desc,
-				c.[name] 
+				c.[name],
+				dpr.[type_desc] 
 			from ' + quotename(@database_name) + '.sys.database_permissions dp
 				left join ' + quotename(@database_name) + '.sys.objects o on
 					dp.major_id = o.[object_id]
@@ -464,7 +469,7 @@ declare @Result_temp table (
 		end
 
 
-		insert into @database_permissions (class_desc,[schema_name],[object_name],[permission_name],state_desc,column_name)
+		insert into @database_permissions (class_desc,[schema_name],[object_name],[permission_name],state_desc,column_name,database_principal_type_desc)
 		exec (@sql)
 
 		
@@ -476,7 +481,7 @@ declare @Result_temp table (
 
 		/* schema level permissions */ 
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on schema::[' + [object_name] + '] to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on SCHEMA::[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'SCHEMA'
 
@@ -496,13 +501,18 @@ declare @Result_temp table (
 
 		/* permissions for types */
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on type::[' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on TYPE::[' + [schema_name] + '].[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'TYPE'
 
 		/* permissions for database principals */
 		insert into @Result_temp (SQLStatement)
-		select state_desc + ' ' + [permission_name] + ' on user::[' + [object_name] + '] to [' + @database_user_name + ']'
+		select state_desc + ' ' + [permission_name] + ' on ' +
+			case database_principal_type_desc 
+				when 'APPLICATION_ROLE' then 'APPLICATION ROLE'
+				when 'DATABASE_ROLE' then 'ROLE'
+				else 'USER'
+			end + '::[' + [object_name] + '] to [' + @database_user_name + ']'
 		from @database_permissions
 		where class_desc = 'DATABASE_PRINCIPAL'
 
