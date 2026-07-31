@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.08
+Version: 1.09
 
 Description: shows host OS, server machine, and SQL Server instance-level properties and configuration options
 Works in SQL Server, Azure SQL Database (haven't tested in Azure SQL MI and Synapse analytics yet)
@@ -29,7 +29,9 @@ Accepts arguments (@command):
 
 History:
 
-2026-07-31 -> Aleksey Vitsko - added support for sys.dm_os_host_info for Azure SQL MI
+
+2026-07-31 -> Aleksey Vitsko - added support for "host_architecture" column from "sys.dm_os_host_info"
+2026-07-31 -> Aleksey Vitsko - added support for "sys.dm_os_host_info" and server config options for Azure SQL MI
 
 2022-09-12 -> Aleksey Vitsko - query "sys.dm_os_host_info" only if SQL Server product major version >= 14
 2022-09-12 -> Aleksey Vitsko - bring "engine edition description" up to date with current Microsoft docs
@@ -60,6 +62,7 @@ declare
 	@HostServicePackLevel					varchar(300) = 'n/a',
 	@HostSKU								varchar(300) = 'n/a',
 	@OSLanguageVersion						varchar(300) = 'n/a',
+	@HostArchitecture						varchar(300) = 'n/a',
 
 	-- machine specs
 	@LogicalCPUCount						varchar(300) = 'n/a',
@@ -182,6 +185,13 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	from sys.dm_os_host_info
 
 		
+	if cast(@ProductMajorVersion as int) >= 15 or @EngineEdition = '8' begin
+
+		select @HostArchitecture = cast(host_architecture as varchar(300)) 
+		from sys.dm_os_host_info
+	end
+
+
 	-- service name
 	declare @exec varchar(max)
 
@@ -190,7 +200,7 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	select @@SERVICENAME'
 
 	exec(@exec)
-	set @ServiceName = (select top 1 tServiceName from ##ServiceName_global)
+	set @ServiceName = (select top 1 isnull(tServiceName,'n/a') from ##ServiceName_global)
 	drop table ##ServiceName_global
 
 
@@ -259,7 +269,8 @@ select
 	@HostPlatform							[HostPlatform],
 	@HostRelease							[HostRelease],
 	@HostDistribution						[HostDistribution],
-		
+	@HostArchitecture						[HostArchitecture],
+
 	-- machine specs
 	@NumaNodeCount							[NumaNodeCount],
 	@SocketCount							[SocketCount],
@@ -365,8 +376,8 @@ if @command in ('multiselect') begin
 select
 	@HostPlatform							[HostPlatform],
 	@HostDistribution						[HostDistribution],
-	@HostRelease							[HostRelease]
-
+	@HostRelease							[HostRelease],
+	@HostArchitecture						[HostArchitecture]
 
 -- machine specs
 select
@@ -511,6 +522,7 @@ if @command in ('all','table','print') begin
 			('Host Service Pack Level',@HostServicePackLevel),
 			('Host SKU',@HostSKU),
 			('OS Language Version',@OSLanguageVersion),
+			('Host Architecture',@HostArchitecture),
 			('','')
 
 
