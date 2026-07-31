@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.09
+Version: 1.10
 
 Description: shows host OS, server machine, and SQL Server instance-level properties and configuration options
 Works in SQL Server, Azure SQL Database (haven't tested in Azure SQL MI and Synapse analytics yet)
@@ -30,6 +30,7 @@ Accepts arguments (@command):
 History:
 
 
+2026-07-31 -> Aleksey Vitsko - added new "Engine Edition" description (12) and "container_type_desc"
 2026-07-31 -> Aleksey Vitsko - added support for "host_architecture" column from "sys.dm_os_host_info"
 2026-07-31 -> Aleksey Vitsko - added support for "sys.dm_os_host_info" and server config options for Azure SQL MI
 
@@ -100,6 +101,7 @@ declare
 	@SchedulerCount							varchar(300) = 'n/a',
 	@SchedulerTotalCount					varchar(300) = 'n/a',
 	@MaxWorkersCount						varchar(300) = 'n/a',
+	@ContainerTypeDesc						varchar(300) = 'n/a',
 	
 	-- edition
 	@Edition								varchar(300) = cast(serverproperty('Edition') as varchar(300)),
@@ -167,6 +169,7 @@ set @EngineEditionDesc = case @EngineEdition
 	when '8' then 'Azure SQL Managed Instance'
 	when '9' then 'Azure SQL Edge'
 	when '11' then 'Azure Synapse serverless SQL pool'
+	when '12' then 'Microsoft Fabric SQL Database in Microsoft Fabric'
 end
 
 
@@ -185,6 +188,7 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	from sys.dm_os_host_info
 
 		
+	/* host architecture available in SQL Server 2019+ and Azure SQL MI */
 	if cast(@ProductMajorVersion as int) >= 15 or @EngineEdition = '8' begin
 
 		select @HostArchitecture = cast(host_architecture as varchar(300)) 
@@ -257,6 +261,12 @@ from sys.dm_os_sys_info
 
 
 
+if cast(@ProductMajorVersion as int) >= 15 or @EngineEdition in ('5','8') begin
+
+	select @ContainerTypeDesc = container_type_desc
+	from sys.dm_os_sys_info
+
+end
 
 
 ---------------------------------------------------- Line -------------------------------------------------------
@@ -307,6 +317,7 @@ select
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
 	@MaxWorkersCount						[MaxWorkersCount],
+	@ContainerTypeDesc						[ContainerTypeDesc],
 
 	-- edition
 	@Edition								[Edition],
@@ -420,7 +431,8 @@ select
 	@MaxPrecision							[MaxPrecision],
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
-	@MaxWorkersCount						[MaxWorkersCount]
+	@MaxWorkersCount						[MaxWorkersCount],
+	@ContainerTypeDesc						[ContainerTypeDesc]
 
 
 -- edition
@@ -570,6 +582,7 @@ if @command in ('all','table','print') begin
 			('Scheduler Count',@SchedulerCount),
 			('Scheduler Total Count',@SchedulerTotalCount),
 			('Max Workers Count',@MaxWorkersCount),
+			('Container Type Desc',@ContainerTypeDesc),
 			('','')
 
 
