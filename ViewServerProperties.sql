@@ -1,13 +1,15 @@
 
 -- use master
-create or alter procedure ViewServerProperties (@command varchar(20) = 'all')  
+create or alter procedure ViewServerProperties (
+	@command			varchar(20) = 'all'
+	)  
 as begin 
 
 /************************************************************** VIEW SERVER PROPERTIES PROCEDURE *************************************************************
 
 Author: Aleksey Vitsko
 
-Version: 1.07
+Version: 1.08
 
 Description: shows host OS, server machine, and SQL Server instance-level properties and configuration options
 Works in SQL Server, Azure SQL Database (haven't tested in Azure SQL MI and Synapse analytics yet)
@@ -27,16 +29,19 @@ Accepts arguments (@command):
 
 History:
 
-2022-09-12 --> Aleksey Vitsko - query "sys.dm_os_host_info" only if SQL Server product major version >= 14
-2022-09-12 --> Aleksey Vitsko - bring "engine edition description" up to date with current Microsoft docs
-2022-09-12 --> Aleksey Vitsko - "sys.dm_os_sys_info" is now supported on Azure SQL DB, Azure SQL MI etc.
-2022-09-12 --> Aleksey Vitsko - added scheduler count, total scheduler count, max worker count to the output
-2022-09-09 --> Aleksey Vitsko - rearranged CPU, SQL memory and SQL instance-related columns, added NUMA node count column
-2022-09-09 --> Aleksey Vitsko - added host OS information to the output
-2019-05-31 --> Aleksey Vitsko - added more CPU and Memory information in the output (number of sockets, used memory, virtual memory etc.)
-2018-07-24 --> Aleksey Vitsko - added server config options (sp_configure) to the output
-2018-07-21 --> Aleksey Vitsko - added machine specs to the output
-2018-07-19 --> Aleksey Vitsko - created procedure
+2026-07-31 -> Aleksey Vitsko - added support for sys.dm_os_host_info for Azure SQL MI
+
+2022-09-12 -> Aleksey Vitsko - query "sys.dm_os_host_info" only if SQL Server product major version >= 14
+2022-09-12 -> Aleksey Vitsko - bring "engine edition description" up to date with current Microsoft docs
+2022-09-12 -> Aleksey Vitsko - "sys.dm_os_sys_info" is now supported on Azure SQL DB, Azure SQL MI etc.
+2022-09-12 -> Aleksey Vitsko - added scheduler count, total scheduler count, max worker count to the output
+2022-09-09 -> Aleksey Vitsko - rearranged CPU, SQL memory and SQL instance-related columns, added NUMA node count column
+2022-09-09 -> Aleksey Vitsko - added host OS information to the output
+
+2019-05-31 -> Aleksey Vitsko - added more CPU and Memory information in the output (number of sockets, used memory, virtual memory etc.)
+2018-07-24 -> Aleksey Vitsko - added server config options (sp_configure) to the output
+2018-07-21 -> Aleksey Vitsko - added machine specs to the output
+2018-07-19 -> Aleksey Vitsko - created procedure
 
 *****************************************************************************************************************************************************************/
 
@@ -164,7 +169,7 @@ end
 
 
 -- SQL Server host os info, service name, server config options
-if @EngineEdition not in ('5','6','8','9','11') and cast(@ProductMajorVersion as int) >= 14  begin
+if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as int) >= 14) or @EngineEdition = '8'  begin
 
 	-- host os
 	select
