@@ -13,7 +13,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.16
+Version: 1.17
 
 
 Description: 
@@ -23,6 +23,7 @@ Shows host OS, server machine (cpu, memory, etc.), and SQL Server instance-level
 
 History:
 
+2026-08-03 -> Aleksey Vitsko - fix issue with missing "server config options" on Azure SQL DB
 2026-08-03 -> Aleksey Vitsko - additional memory info for Azure SQL DB; other adjustments
 2026-08-03 -> Aleksey Vitsko - new sections SQL instance memory and cpu, add maxdop and cpu rate (azure sql, job object)
 2026-08-03 -> Aleksey Vitsko - use /* */ for comments only
@@ -210,7 +211,7 @@ end
 
 
 /* SQL Server host OS info, service name, server config options */
-if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as int) >= 14) or @EngineEdition = '8'  begin
+if (@EngineEdition not in ('5') and cast(@ProductMajorVersion as int) >= 14) or @EngineEdition = '8'  begin
 
 	/* host os */
 	select
@@ -230,6 +231,10 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 		from sys.dm_os_host_info
 	end
 
+end
+
+
+if (@EngineEdition not in ('5')) begin
 
 	/* service name */
 	declare @exec varchar(max)
@@ -242,28 +247,35 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	set @ServiceName = (select top 1 isnull(tServiceName,'n/a') from ##ServiceName_global)
 	drop table ##ServiceName_global
 
-
-	/* server config options */
-	declare @i int = 1
-
-	declare @ServerConfigOptions table (
-		ID						int primary key identity,
-		ConfigOptionName		varchar(100),
-		MinimumValue			int,
-		MaximumValue			bigint,
-		ConfigValue				bigint,
-		CurrentValue			bigint)
+end
 
 
-	insert into @ServerConfigOptions (ConfigOptionName, MinimumValue, MaximumValue, ConfigValue, CurrentValue)
-	exec sp_configure 
+/* server config options */
+declare @i int = 1
+
+declare @ServerConfigOptions table (
+	ID						int primary key identity,
+	ConfigOptionName		varchar(35),
+	MinimumValue			int,
+	MaximumValue			bigint,
+	ConfigValue				bigint,
+	CurrentValue			bigint)
+
+
+insert into @ServerConfigOptions (ConfigOptionName, MinimumValue, MaximumValue, ConfigValue, CurrentValue)
+select
+	[name],
+	cast(minimum as int),
+	cast(maximum as bigint),
+	cast([value] as bigint)			[config_value],
+	cast(value_in_use as bigint)	[run_value]
+from sys.configurations
+order by [name]
 
 	
-	while @i <= (select max(ID) from @ServerConfigOptions) begin
-		set @ServerConfigOptionsLine = @ServerConfigOptionsLine + (select ConfigOptionName from @ServerConfigOptions where ID = @i) + ' = ' + (select cast(CurrentValue as varchar) from  @ServerConfigOptions where ID = @i) + '; '
-		set @i += 1
-	end
-
+while @i <= (select max(ID) from @ServerConfigOptions) begin
+	set @ServerConfigOptionsLine = @ServerConfigOptionsLine + (select ConfigOptionName from @ServerConfigOptions where ID = @i) + ' = ' + (select cast(CurrentValue as varchar) from  @ServerConfigOptions where ID = @i) + '; '
+	set @i += 1
 end
 
 
