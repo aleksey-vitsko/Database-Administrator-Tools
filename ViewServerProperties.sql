@@ -1,4 +1,4 @@
-
+-- exec ViewServerProperties
 -- use master
 create or alter procedure ViewServerProperties (
 	@command			varchar(20) = 'all'
@@ -9,7 +9,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.10
+Version: 1.12
 
 Description: shows host OS, server machine, and SQL Server instance-level properties and configuration options
 Works in SQL Server, Azure SQL Database (haven't tested in Azure SQL MI and Synapse analytics yet)
@@ -30,6 +30,9 @@ Accepts arguments (@command):
 History:
 
 
+2026-08-03 -> Aleksey Vitsko - split cpu and memory (machine) into two sections
+2026-08-01 -> Aleksey Vitsko - additional machine memory info from "sys.dm_os_sys_memory"
+2026-08-01 -> Aleksey Vitsko - rearrange sort order for the output information 
 2026-07-31 -> Aleksey Vitsko - added new "Engine Edition" description (12) and "container_type_desc"
 2026-07-31 -> Aleksey Vitsko - added support for "host_architecture" column from "sys.dm_os_host_info"
 2026-07-31 -> Aleksey Vitsko - added support for "sys.dm_os_host_info" and server config options for Azure SQL MI
@@ -56,6 +59,13 @@ set nocount on
 -- variables to keep server properties in text format
 declare 
 	
+	-- server
+	@ServerName								varchar(300) = cast(serverproperty('ServerName') as varchar(300)),
+	@MachineName							varchar(300) = cast(isnull(serverproperty('MachineName'),'n/a')	 as varchar(300)),
+	@ComputerNamePhysicalNetBios			varchar(300) = cast(isnull(serverproperty('ComputerNamePhysicalNetBios'),'n/a') as varchar(300)),
+	@VirtualMachineType						varchar(300) = 'n/a',
+	@ContainerTypeDesc						varchar(300) = 'n/a',
+
 	-- os host info
 	@HostPlatform							varchar(300) = 'n/a',
 	@HostDistribution						varchar(300) = 'n/a',
@@ -76,18 +86,19 @@ declare
 	@VirtualMemoryGB						varchar(300) = 'n/a',
 	@CommittedMemoryGB						varchar(300) = 'n/a',
 	@CommittedTargetMemoryGB				varchar(300) = 'n/a',
-	@MemoryUsedPercentage								varchar(300) = 'n/a',
+	@MemoryUsedPercentage					varchar(300) = 'n/a',
 	@SQLMemoryModelDesc						varchar(300) = 'n/a',
 
-	@SQLServerStartTime						varchar(300) = 'n/a',
-	@VirtualMachineType						varchar(300) = 'n/a',
-	
-	-- machine name
-	@ComputerNamePhysicalNetBios			varchar(300) = cast(isnull(serverproperty('ComputerNamePhysicalNetBios'),'n/a') as varchar(300)),
-	@MachineName							varchar(300) = cast(isnull(serverproperty('MachineName'),'n/a')	 as varchar(300)),
-	@ServerName								varchar(300) = cast(serverproperty('ServerName') as varchar(300)),
+	@AvailablePhysicalMemoryGB				varchar(300) = 'n/a',
+	@PageFileGB								varchar(300) = 'n/a',
+	@AvailablePageFileGB					varchar(300) = 'n/a',
+	@SystemCacheGB							varchar(300) = 'n/a',
+	@KernelPagedPoolGB						varchar(300) = 'n/a',
+	@KernelNonPagedPoolGB					varchar(300) = 'n/a',
+	@SystemMemoryState						varchar(300) = 'n/a',
 
 	-- instance
+	@SQLServerStartTime						varchar(300) = 'n/a',
 	@ProcessID								varchar(300) = cast(isnull(serverproperty('ProcessID'),'n/a') as varchar(300)),
 	@InstanceName							varchar(300) = cast(isnull(serverproperty('InstanceName'),'(default)') as varchar(300)),
 	@ServiceName							varchar(300) = 'n/a', -- = @@SERVICENAME,
@@ -101,8 +112,7 @@ declare
 	@SchedulerCount							varchar(300) = 'n/a',
 	@SchedulerTotalCount					varchar(300) = 'n/a',
 	@MaxWorkersCount						varchar(300) = 'n/a',
-	@ContainerTypeDesc						varchar(300) = 'n/a',
-	
+		
 	-- edition
 	@Edition								varchar(300) = cast(serverproperty('Edition') as varchar(300)),
 	@EditionID								varchar(300) = cast(serverproperty('EditionID')	 as varchar(300)),
@@ -269,33 +279,66 @@ if cast(@ProductMajorVersion as int) >= 15 or @EngineEdition in ('5','8') begin
 end
 
 
+
+/* machine memory info */
+if @EngineEdition not in ('5') begin
+	select 
+		@AvailablePhysicalMemoryGB = cast(cast(available_physical_memory_kb as decimal(32,2)) / 1024 / 1024	 as decimal(32,2)),
+		@PageFileGB = cast(cast(total_page_file_kb as decimal(32,2)) / 1024 / 1024 as decimal(32,2)),
+		@AvailablePageFileGB = cast(cast(available_page_file_kb as decimal(32,2)) / 1024 / 1024 as decimal(32,2)),
+		@SystemCacheGB = cast(cast(system_cache_kb as decimal(32,2)) / 1024 / 1024 as decimal(32,2)),
+		@KernelPagedPoolGB = cast(cast(kernel_paged_pool_kb as decimal(32,2)) / 1024 / 1024 as decimal(32,2)),
+		@KernelNonPagedPoolGB = cast(cast(kernel_nonpaged_pool_kb as decimal(32,2)) / 1024 / 1024 as decimal(32,2)),
+		@SystemMemoryState = system_memory_state_desc
+	from sys.dm_os_sys_memory
+
+end
+
+
+-- hadr manager status description
+if @HadrManagerStatus = '0' begin set @HadrManagerStatus = '0 - Not started, pending communication' end
+if @HadrManagerStatus = '1' begin set @HadrManagerStatus = '1 - Started and running' end
+if @HadrManagerStatus = '2' begin set @HadrManagerStatus = '2 - Not started and failed' end
+
+
+
 ---------------------------------------------------- Line -------------------------------------------------------
 
 -- output line
 if @command in ('all','line') begin
 
 select 
+	-- server
+	@ServerName								[ServerName],
+	@MachineName							[MachineName],
+	@ComputerNamePhysicalNetBios			[ComputerNamePhysicalNetBios],
+	@VirtualMachineType						[VirtualMachineType],
+	@ContainerTypeDesc						[ContainerTypeDesc],
+
 	-- host os info
 	@HostPlatform							[HostPlatform],
 	@HostRelease							[HostRelease],
 	@HostDistribution						[HostDistribution],
 	@HostArchitecture						[HostArchitecture],
 
-	-- machine specs
-	@NumaNodeCount							[NumaNodeCount],
+	-- cpu (machine)
 	@SocketCount							[SocketCount],
 	@CoresPerSocket							[CoresPerSocket],
 	@HyperThreadRatio						[HyperThreadRatio],
 	@LogicalCPUCount						[LogicalCPUCount],
+	@NumaNodeCount							[NumaNodeCount],
 	
-	@PhysicalMemoryGB						[PhysicalMemoryGB],
+	-- memory (machine)
 	@VirtualMemoryGB						[VirtualMemoryGB],
-	@VirtualMachineType						[VirtualMachineType],
+	@PhysicalMemoryGB						[PhysicalMemoryGB],
+	@AvailablePhysicalMemoryGB				[AvailablePhysicalMemoryGB],
+	@PageFileGB								[PageFileGB],
+	@AvailablePageFileGB					[AvailablePageFileGB],
+	@SystemCacheGB							[SystemCacheGB],
+	@KernelPagedPoolGB						[KernelPagedPoolGB],
+	@KernelNonPagedPoolGB					[KernelNonPagedPoolGB],
+	@SystemMemoryState						[SystemMemoryState],
 
-	-- machine name
-	@MachineName							[MachineName],
-	@ServerName								[ServerName],
-	@ComputerNamePhysicalNetBios			[ComputerNamePhysicalNetBios],
 
 	-- sql server instance
 	@SQLServerStartTime						[SQLServerStartTime],
@@ -317,7 +360,7 @@ select
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
 	@MaxWorkersCount						[MaxWorkersCount],
-	@ContainerTypeDesc						[ContainerTypeDesc],
+	
 
 	-- edition
 	@Edition								[Edition],
@@ -383,6 +426,15 @@ end			-- line section end
 if @command in ('multiselect') begin
 
 
+-- server
+select 
+	@ServerName								[ServerName],
+	@MachineName							[MachineName],
+	@ComputerNamePhysicalNetBios			[ComputerNamePhysicalNetBios],
+	@VirtualMachineType						[VirtualMachineType],
+	@ContainerTypeDesc						[ContainerTypeDesc]
+
+
 -- host os info
 select
 	@HostPlatform							[HostPlatform],
@@ -390,26 +442,27 @@ select
 	@HostRelease							[HostRelease],
 	@HostArchitecture						[HostArchitecture]
 
--- machine specs
-select
-	@NumaNodeCount							[NumaNodeCount],
+
+-- cpu (machine)
+select	
 	@SocketCount							[SocketCount],
 	@CoresPerSocket							[CoresPerSocket],
 	@HyperThreadRatio						[HyperThreadRatio],
 	@LogicalCPUCount						[LogicalCPUCount],
+	@NumaNodeCount							[NumaNodeCount]
 	
-	@PhysicalMemoryGB						[PhysicalMemoryGB],
+	-- memory (machine)
+select	
 	@VirtualMemoryGB						[VirtualMemoryGB],
+	@PhysicalMemoryGB						[PhysicalMemoryGB],
+	@AvailablePhysicalMemoryGB				[AvailablePhysicalMemoryGB],
+	@PageFileGB								[PageFileGB],
+	@AvailablePageFileGB					[AvailablePageFileGB],
+	@SystemCacheGB							[SystemCacheGB],
+	@KernelPagedPoolGB						[KernelPagedPoolGB],
+	@KernelNonPagedPoolGB					[KernelNonPagedPoolGB],
+	@SystemMemoryState						[SystemMemoryState]
 		
-	@VirtualMachineType						[VirtualMachineType]
-
-
--- machine name
-select 
-	@MachineName							[MachineName],
-	@ServerName								[ServerName],
-	@ComputerNamePhysicalNetBios			[ComputerNamePhysicalNetBios]
-
 
 -- instance
 select	
@@ -431,9 +484,8 @@ select
 	@MaxPrecision							[MaxPrecision],
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
-	@MaxWorkersCount						[MaxWorkersCount],
-	@ContainerTypeDesc						[ContainerTypeDesc]
-
+	@MaxWorkersCount						[MaxWorkersCount]
+	
 
 -- edition
 select
@@ -524,10 +576,23 @@ if @command in ('all','table','print') begin
 		PropertyNameValue		varchar(400) default '')
 
 
-	-- host os
+	-- server
 	insert into #ServerProperties (PropertyName,PropertyValue)
 	values	('',''),
-			('-- Host OS --',''),
+			('-- Server --',''),
+			('',''),
+			('Server Name',@ServerName),
+			('Machine Name',@MachineName),
+			('Computer Name Physical Net Bios',@ComputerNamePhysicalNetBios),
+			('Virtual Machine Type',@VirtualMachineType),
+			('Container Type Desc',@ContainerTypeDesc),
+			('','')
+
+
+	-- host os
+	insert into #ServerProperties (PropertyName,PropertyValue)
+	values	('-- Host OS --',''),
+			('',''),
 			('Host Platform',@HostPlatform),
 			('Host Distribution',@HostDistribution),
 			('Host Release',@HostRelease),
@@ -538,27 +603,34 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- server machine
+	-- cpu
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	
-			('-- Server Machine --',''),
+	values	('-- CPU (Machine) --',''),
 			('',''),
-			('NUMA Node Count',@NumaNodeCount),
 			('Socket Count',@SocketCount),
 			('Cores Per Socket',@CoresPerSocket),
 			('Hyper-Thread Ratio',@HyperThreadRatio),
 			('Logical CPU Count',@LogicalCPUCount),
-			
-			('Physical Memory GB',@PhysicalMemoryGB),
-			('Virtual Memory GB',@VirtualMemoryGB),
-						
-			('Virtual Machine Type',@VirtualMachineType),
-			('Server Name',@ServerName),
-			('Machine Name',@MachineName),
-			('Computer Name Physical Net Bios',@ComputerNamePhysicalNetBios),
+			('NUMA Node Count',@NumaNodeCount),
 			('','')
 		
-		
+	
+	-- memory
+	insert into #ServerProperties (PropertyName,PropertyValue)
+	values	('-- Memory (Machine) --',''),
+			('',''),
+			('Virtual Memory GB',@VirtualMemoryGB),
+			('Physical Memory GB',@PhysicalMemoryGB),	
+			('Available Physical Memory GB',@AvailablePhysicalMemoryGB),
+			('Page File GB',@PageFileGB),
+			('Available Page File GB',@AvailablePageFileGB),
+			('System Cache GB',@SystemCacheGB),
+			('Kernel Paged Pool GB',@KernelPagedPoolGB),
+			('Kernel Non Paged Pool GB',@KernelNonPagedPoolGB),
+			('System Memory State',@SystemMemoryState),
+			('','')
+			
+								
 	-- instance
 	insert into #ServerProperties (PropertyName,PropertyValue)
 	values	('-- SQL Server Instance --',''),
@@ -582,7 +654,6 @@ if @command in ('all','table','print') begin
 			('Scheduler Count',@SchedulerCount),
 			('Scheduler Total Count',@SchedulerTotalCount),
 			('Max Workers Count',@MaxWorkersCount),
-			('Container Type Desc',@ContainerTypeDesc),
 			('','')
 
 
