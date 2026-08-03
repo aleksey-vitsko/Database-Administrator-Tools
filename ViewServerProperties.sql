@@ -13,7 +13,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.14
+Version: 1.16
 
 
 Description: 
@@ -23,6 +23,7 @@ Shows host OS, server machine (cpu, memory, etc.), and SQL Server instance-level
 
 History:
 
+2026-08-03 -> Aleksey Vitsko - additional memory info for Azure SQL DB; other adjustments
 2026-08-03 -> Aleksey Vitsko - new sections SQL instance memory and cpu, add maxdop and cpu rate (azure sql, job object)
 2026-08-03 -> Aleksey Vitsko - use /* */ for comments only
 2026-08-03 -> Aleksey Vitsko - split cpu and memory (machine) into two sections
@@ -73,118 +74,119 @@ set nocount on
 declare 
 	
 	/* server */
-	@ServerName								varchar(300) = cast(serverproperty('ServerName') as varchar(300)),
-	@MachineName							varchar(300) = cast(isnull(serverproperty('MachineName'),'n/a')	 as varchar(300)),
-	@ComputerNamePhysicalNetBios			varchar(300) = cast(isnull(serverproperty('ComputerNamePhysicalNetBios'),'n/a') as varchar(300)),
-	@VirtualMachineType						varchar(300) = 'n/a',
-	@ContainerTypeDesc						varchar(300) = 'n/a',
+	@ServerName								varchar(128) = cast(serverproperty('ServerName') as varchar(128)),
+	@MachineName							varchar(128) = cast(isnull(serverproperty('MachineName'),'n/a')	 as varchar(128)),
+	@ComputerNamePhysicalNetBios			varchar(128) = cast(isnull(serverproperty('ComputerNamePhysicalNetBios'),'n/a') as varchar(128)),
+	@VirtualMachineType						varchar(128) = 'n/a',
+	@ContainerTypeDesc						varchar(128) = 'n/a',
 
 	/* OS host info */
-	@HostPlatform							varchar(300) = 'n/a',
-	@HostDistribution						varchar(300) = 'n/a',
-	@HostRelease							varchar(300) = 'n/a',
-	@HostServicePackLevel					varchar(300) = 'n/a',
-	@HostSKU								varchar(300) = 'n/a',
-	@OSLanguageVersion						varchar(300) = 'n/a',
-	@HostArchitecture						varchar(300) = 'n/a',
+	@HostPlatform							varchar(128) = 'n/a',
+	@HostDistribution						varchar(128) = 'n/a',
+	@HostRelease							varchar(128) = 'n/a',
+	@HostServicePackLevel					varchar(128) = 'n/a',
+	@HostSKU								varchar(128) = 'n/a',
+	@OSLanguageVersion						varchar(128) = 'n/a',
+	@HostArchitecture						varchar(128) = 'n/a',
 
 	/* cpu (machine) */
-	@SocketCount							varchar(300) = 'n/a',
-	@CoresPerSocket							varchar(300) = 'n/a',
-	@HyperThreadRatio						varchar(300) = 'n/a',
-	@LogicalCPUCount						varchar(300) = 'n/a',
-	@NumaNodeCount							varchar(300) = 'n/a',
+	@SocketCount							varchar(128) = 'n/a',
+	@CoresPerSocket							varchar(128) = 'n/a',
+	@HyperThreadRatio						varchar(128) = 'n/a',
+	@LogicalCPUCount						varchar(128) = 'n/a',
+	@NumaNodeCount							varchar(128) = 'n/a',
 				
 
 	/* memory (machine) */
-	@VirtualMemoryGB						varchar(300) = 'n/a',
-	@PhysicalMemoryGB						varchar(300) = 'n/a',
-	@AvailablePhysicalMemoryGB				varchar(300) = 'n/a',
-	@PageFileGB								varchar(300) = 'n/a',
-	@AvailablePageFileGB					varchar(300) = 'n/a',	
-	@SystemCacheGB							varchar(300) = 'n/a',	
-	@KernelPagedPoolGB						varchar(300) = 'n/a',
-	@KernelNonPagedPoolGB					varchar(300) = 'n/a',	
-	@SystemMemoryState						varchar(300) = 'n/a',
+	@VirtualMemoryGB						varchar(128) = 'n/a',
+	@PhysicalMemoryGB						varchar(128) = 'n/a',
+	@AvailablePhysicalMemoryGB				varchar(128) = 'n/a',
+	@PageFileGB								varchar(128) = 'n/a',
+	@AvailablePageFileGB					varchar(128) = 'n/a',	
+	@SystemCacheGB							varchar(128) = 'n/a',	
+	@KernelPagedPoolGB						varchar(128) = 'n/a',
+	@KernelNonPagedPoolGB					varchar(128) = 'n/a',	
+	@SystemMemoryState						varchar(128) = 'n/a',
 
 
 	/* SQL instance cpu */
-	@MaxDOP									varchar(300) = 'n/a',
-	@CPURateAzureSQL						varchar(300) = 'n/a',
-	@SchedulerCount							varchar(300) = 'n/a',
-	@SchedulerTotalCount					varchar(300) = 'n/a',
-	@MaxWorkersCount						varchar(300) = 'n/a',
+	@MaxDOP									varchar(128) = 'n/a',
+	@CPURateAzureSQL						varchar(128) = 'n/a',
+	@SchedulerCount							varchar(128) = 'n/a',
+	@SchedulerTotalCount					varchar(128) = 'n/a',
+	@MaxWorkersCount						varchar(128) = 'n/a',
 
 	/* SQL instance memory */
 
-	@CommittedMemoryGB						varchar(300) = 'n/a',
-	@CommittedTargetMemoryGB				varchar(300) = 'n/a',
-	@MemoryUsedPercentage					varchar(300) = 'n/a',
-	@SQLMemoryModelDesc						varchar(300) = 'n/a',
-	
+	@CommittedMemoryGB						varchar(128) = 'n/a',
+	@CommittedTargetMemoryGB				varchar(128) = 'n/a',
+	@MemoryUsedPercentage					varchar(128) = 'n/a',
+	@SQLMemoryModelDesc						varchar(128) = 'n/a',
+	@ProcessMemoryLimitGB					varchar(128) = 'n/a',
+
 
 	/* instance */
-	@InstanceName							varchar(300) = cast(isnull(serverproperty('InstanceName'),'(default)') as varchar(300)),
-	@ServiceName							varchar(300) = 'n/a', -- = @@SERVICENAME,
-	@SQLServerStartTime						varchar(300) = 'n/a',
-	@ProcessID								varchar(300) = cast(isnull(serverproperty('ProcessID'),'n/a') as varchar(300)),
-	@Language								varchar(300) = cast(@@LANGUAGE as varchar(300)),
-	@InstanceDefaultDataPath				varchar(300) = cast(isnull(serverproperty('InstanceDefaultDataPath'),'n/a') as varchar(300)),
-	@InstanceDefaultLogPath					varchar(300) = cast(isnull(serverproperty('InstanceDefaultLogPath'),'n/a') as varchar(300)),
-	@IsIntegratedSecurityOnly				varchar(300) = cast(serverproperty('IsIntegratedSecurityOnly') as varchar(300)),
-	@IsSingleUser							varchar(300) = cast(serverproperty('IsSingleUser') as varchar(300)),
-	@MaxConnections							varchar(300) = cast(@@MAX_CONNECTIONS as varchar(300)),
-	@MaxPrecision							varchar(300) = cast(@@MAX_PRECISION as varchar(300)),
+	@InstanceName							varchar(128) = cast(isnull(serverproperty('InstanceName'),'(default)') as varchar(128)),
+	@ServiceName							varchar(128) = 'n/a', /* = @@SERVICENAME */
+	@SQLServerStartTime						varchar(128) = 'n/a',
+	@ProcessID								varchar(128) = cast(isnull(serverproperty('ProcessID'),'n/a') as varchar(128)),
+	@Language								varchar(128) = cast(@@LANGUAGE as varchar(128)),
+	@InstanceDefaultDataPath				varchar(128) = cast(isnull(serverproperty('InstanceDefaultDataPath'),'n/a') as varchar(128)),
+	@InstanceDefaultLogPath					varchar(128) = cast(isnull(serverproperty('InstanceDefaultLogPath'),'n/a') as varchar(128)),
+	@IsIntegratedSecurityOnly				varchar(128) = cast(serverproperty('IsIntegratedSecurityOnly') as varchar(128)),
+	@IsSingleUser							varchar(128) = cast(serverproperty('IsSingleUser') as varchar(128)),
+	@MaxConnections							varchar(128) = cast(@@MAX_CONNECTIONS as varchar(128)),
+	@MaxPrecision							varchar(128) = cast(@@MAX_PRECISION as varchar(128)),
 	
 		
 	/* edition */
-	@Edition								varchar(300) = cast(serverproperty('Edition') as varchar(300)),
-	@EditionID								varchar(300) = cast(serverproperty('EditionID')	 as varchar(300)),
-	@EngineEdition							varchar(300) = cast(serverproperty('EngineEdition') as varchar(300)),
-	@EngineEditionDesc						varchar(300),
+	@Edition								varchar(128) = cast(serverproperty('Edition') as varchar(128)),
+	@EditionID								varchar(128) = cast(serverproperty('EditionID')	 as varchar(128)),
+	@EngineEdition							varchar(128) = cast(serverproperty('EngineEdition') as varchar(128)),
+	@EngineEditionDesc						varchar(128),
 	
 	/* version */
-	@BuildCLRVersion						varchar(300) = cast(isnull(serverproperty('BuildCLRVersion'),'n/a') as varchar(300)),
-	@ProductBuild							varchar(300) = cast(serverproperty('ProductBuild') as varchar(300)),
-	@ProductBuildType						varchar(300) = cast(isnull(serverproperty('ProductBuildType'),'n/a') as varchar(300)),
-	@ProductLevel							varchar(300) = cast(serverproperty('ProductLevel') as varchar(300)),
-	@ProductUpdateLevel						varchar(300) = cast(isnull(serverproperty('ProductUpdateLevel'),'n/a') as varchar(300)),
-	@ProductVersion							varchar(300) = cast(serverproperty('ProductVersion') as varchar(300)),
-	@ProductMajorVersion					varchar(300) = cast(serverproperty('ProductMajorVersion') as varchar(300)),
-	@ProductMinorVersion					varchar(300) = cast(serverproperty('ProductMinorVersion') as varchar(300)),
-	@ProductUpdateReference					varchar(300) = cast(isnull(serverproperty('ProductUpdateReference'),'n/a') as varchar(300)),
-	@VersionFullDesc						varchar(300) = cast(@@VERSION as varchar(300)),
+	@BuildCLRVersion						varchar(128) = cast(isnull(serverproperty('BuildCLRVersion'),'n/a') as varchar(128)),
+	@ProductBuild							varchar(128) = cast(serverproperty('ProductBuild') as varchar(128)),
+	@ProductBuildType						varchar(128) = cast(isnull(serverproperty('ProductBuildType'),'n/a') as varchar(128)),
+	@ProductLevel							varchar(128) = cast(serverproperty('ProductLevel') as varchar(128)),
+	@ProductUpdateLevel						varchar(128) = cast(isnull(serverproperty('ProductUpdateLevel'),'n/a') as varchar(128)),
+	@ProductVersion							varchar(128) = cast(serverproperty('ProductVersion') as varchar(128)),
+	@ProductMajorVersion					varchar(128) = cast(serverproperty('ProductMajorVersion') as varchar(128)),
+	@ProductMinorVersion					varchar(128) = cast(serverproperty('ProductMinorVersion') as varchar(128)),
+	@ProductUpdateReference					varchar(128) = cast(isnull(serverproperty('ProductUpdateReference'),'n/a') as varchar(128)),
+	@VersionFullDesc						varchar(128) = cast(@@VERSION as varchar(128)),
 
 	/* features */	
-	@IsLocalDB								varchar(300) = cast(isnull(serverproperty('IsLocalDB'),'n/a') as varchar(300)),
-	@IsFullTextInstalled					varchar(300) = cast(serverproperty('IsFullTextInstalled') as varchar(300)),
-	@IsAdvancedAnalyticsInstalled			varchar(300) = cast(isnull(serverproperty('IsAdvancedAnalyticsInstalled'),'n/a') as varchar(300)),
-	@IsPolybaseInstalled					varchar(300) = cast(isnull(serverproperty('IsPolybaseInstalled'),'n/a') as varchar(300)),
-	@IsXTPSupported							varchar(300) = cast(isnull(serverproperty('IsXTPSupported'),'n/a') as varchar(300)),
+	@IsLocalDB								varchar(128) = cast(isnull(serverproperty('IsLocalDB'),'n/a') as varchar(128)),
+	@IsFullTextInstalled					varchar(128) = cast(serverproperty('IsFullTextInstalled') as varchar(128)),
+	@IsAdvancedAnalyticsInstalled			varchar(128) = cast(isnull(serverproperty('IsAdvancedAnalyticsInstalled'),'n/a') as varchar(128)),
+	@IsPolybaseInstalled					varchar(128) = cast(isnull(serverproperty('IsPolybaseInstalled'),'n/a') as varchar(128)),
+	@IsXTPSupported							varchar(128) = cast(isnull(serverproperty('IsXTPSupported'),'n/a') as varchar(128)),
 
 	/* cluster and hadr */
-	@IsClustered							varchar(300) = cast(isnull(serverproperty('IsClustered'),'n/a') as varchar(300)),
-	@IsHadrEnabled							varchar(300) = cast(isnull(serverproperty('IsHadrEnabled'),'n/a') as varchar(300)),
-	@HadrManagerStatus						varchar(300) = cast(isnull(serverproperty('HadrManagerStatus'),'n/a') as varchar(300)),
+	@IsClustered							varchar(128) = cast(isnull(serverproperty('IsClustered'),'n/a') as varchar(128)),
+	@IsHadrEnabled							varchar(128) = cast(isnull(serverproperty('IsHadrEnabled'),'n/a') as varchar(128)),
+	@HadrManagerStatus						varchar(128) = cast(isnull(serverproperty('HadrManagerStatus'),'n/a') as varchar(128)),
 	
 	/* collation */
-	@Collation								varchar(300) = cast(serverproperty('Collation') as varchar(300)),
-	@CollationID							varchar(300) = cast(serverproperty('CollationID') as varchar(300)),
-	@ComparisonStyle						varchar(300) = cast(serverproperty('ComparisonStyle') as varchar(300)),
-	@LCID									varchar(300) = cast(serverproperty('LCID') as varchar(300)),
-	@SqlCharSet								varchar(300) = cast(serverproperty('SqlCharSet') as varchar(300)),
-	@SqlCharSetName							varchar(300) = cast(serverproperty('SqlCharSetName') as varchar(300)),
-	@SqlSortOrder							varchar(300) = cast(serverproperty('SqlSortOrder') as varchar(300)),
-	@SqlSortOrderName						varchar(300) = cast(serverproperty('SqlSortOrderName') as varchar(300)),
+	@Collation								varchar(128) = cast(serverproperty('Collation') as varchar(128)),
+	@CollationID							varchar(128) = cast(serverproperty('CollationID') as varchar(128)),
+	@ComparisonStyle						varchar(128) = cast(serverproperty('ComparisonStyle') as varchar(128)),
+	@LCID									varchar(128) = cast(serverproperty('LCID') as varchar(128)),
+	@SqlCharSet								varchar(128) = cast(serverproperty('SqlCharSet') as varchar(128)),
+	@SqlCharSetName							varchar(128) = cast(serverproperty('SqlCharSetName') as varchar(128)),
+	@SqlSortOrder							varchar(128) = cast(serverproperty('SqlSortOrder') as varchar(128)),
+	@SqlSortOrderName						varchar(128) = cast(serverproperty('SqlSortOrderName') as varchar(128)),
 	
 	/* filestream */
-	@FilestreamShareName					varchar(300) = cast(isnull(serverproperty('FilestreamShareName'),'n/a') as varchar(300)),
-	@FilestreamConfiguredLevel				varchar(300) = cast(serverproperty('FilestreamConfiguredLevel')	 as varchar(300)),
-	@FilestreamEffectiveLevel				varchar(300) = cast(serverproperty('FilestreamEffectiveLevel') as varchar(300)),
+	@FilestreamShareName					varchar(128) = cast(isnull(serverproperty('FilestreamShareName'),'n/a') as varchar(128)),
+	@FilestreamConfiguredLevel				varchar(128) = cast(serverproperty('FilestreamConfiguredLevel')	 as varchar(128)),
+	@FilestreamEffectiveLevel				varchar(128) = cast(serverproperty('FilestreamEffectiveLevel') as varchar(128)),
 	
 	/* resource database */
-	@ResourceVersion						varchar(300) = cast(serverproperty('ResourceVersion') as varchar(300)),
-	@ResourceLastUpdateDateTime				varchar(300) = cast(serverproperty('ResourceLastUpdateDateTime') as varchar(300)),
+	@ResourceVersion						varchar(128) = cast(serverproperty('ResourceVersion') as varchar(128)),
+	@ResourceLastUpdateDateTime				varchar(128) = cast(serverproperty('ResourceLastUpdateDateTime') as varchar(128)),
 
 	/* server config options */
 	@ServerConfigOptionsLine				varchar(max) = ''
@@ -212,19 +214,19 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 
 	/* host os */
 	select
-		@HostPlatform					= cast(host_platform as varchar(300)),
-		@HostRelease					= cast(host_release as varchar(300)),
-		@HostDistribution				= cast(host_distribution as varchar(300)),
-		@HostServicePackLevel			= cast(host_service_pack_level as varchar(300)), 
-		@HostSKU						= cast(host_sku as varchar(300)), 
-		@OSLanguageVersion				= cast(os_language_version as varchar(300)) 
+		@HostPlatform					= cast(host_platform as varchar(128)),
+		@HostRelease					= cast(host_release as varchar(128)),
+		@HostDistribution				= cast(host_distribution as varchar(128)),
+		@HostServicePackLevel			= cast(host_service_pack_level as varchar(128)), 
+		@HostSKU						= cast(host_sku as varchar(128)), 
+		@OSLanguageVersion				= cast(os_language_version as varchar(128)) 
 	from sys.dm_os_host_info
 
 		
 	/* host architecture available in SQL Server 2019+ and Azure SQL MI */
 	if cast(@ProductMajorVersion as int) >= 15 or @EngineEdition = '8' begin
 
-		select @HostArchitecture = cast(host_architecture as varchar(300)) 
+		select @HostArchitecture = cast(host_architecture as varchar(128)) 
 		from sys.dm_os_host_info
 	end
 
@@ -232,7 +234,7 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	/* service name */
 	declare @exec varchar(max)
 
-	set @exec = 'create table ##ServiceName_global (tServiceName varchar(300)) 
+	set @exec = 'create table ##ServiceName_global (tServiceName varchar(128)) 
 	insert into ##ServiceName_global (tServiceName) 
 	select @@SERVICENAME'
 
@@ -268,27 +270,27 @@ end
 
 /* machine and sql server instance info */
 select
-	@NumaNodeCount					= cast(numa_node_count as varchar(300)),
-	@SocketCount					= cast(socket_count as varchar(300)),
-	@CoresPerSocket					= cast(cores_per_socket as varchar(300)),
-	@HyperThreadRatio				= cast(hyperthread_ratio as varchar(300)),
-	@LogicalCPUCount				= cast(cpu_count as varchar(300)),
+	@NumaNodeCount					= cast(numa_node_count as varchar(128)),
+	@SocketCount					= cast(socket_count as varchar(128)),
+	@CoresPerSocket					= cast(cores_per_socket as varchar(128)),
+	@HyperThreadRatio				= cast(hyperthread_ratio as varchar(128)),
+	@LogicalCPUCount				= cast(cpu_count as varchar(128)),
 		
-	@PhysicalMemoryGB				= cast((physical_memory_kb / 1048576) as varchar(300)),
-	@VirtualMemoryGB				= cast((virtual_memory_kb / 1048576) as varchar(300)), 	
+	@PhysicalMemoryGB				= cast((physical_memory_kb / 1048576) as varchar(128)),
+	@VirtualMemoryGB				= cast((virtual_memory_kb / 1048576) as varchar(128)), 	
 
-	@CommittedMemoryGB				= substring(cast((cast(committed_kb as decimal(20,2)) / 1024 / 1024) as varchar(300)),1,charindex('.',cast((cast(committed_kb as decimal(20,2)) / 1024 / 1024) as varchar(300))) + 2),
-	@CommittedTargetMemoryGB		= substring(cast((cast(committed_target_kb as decimal(20,2)) / 1024 / 1024) as varchar(300)),1,charindex('.',cast((cast(committed_target_kb as decimal(20,2)) / 1024 / 1024) as varchar(300))) + 2),
+	@CommittedMemoryGB				= substring(cast((cast(committed_kb as decimal(20,2)) / 1024 / 1024) as varchar(128)),1,charindex('.',cast((cast(committed_kb as decimal(20,2)) / 1024 / 1024) as varchar(128))) + 2),
+	@CommittedTargetMemoryGB		= substring(cast((cast(committed_target_kb as decimal(20,2)) / 1024 / 1024) as varchar(128)),1,charindex('.',cast((cast(committed_target_kb as decimal(20,2)) / 1024 / 1024) as varchar(128))) + 2),
 		
-	@SQLMemoryModelDesc				= cast(sql_memory_model_desc as varchar(300)), 	
+	@SQLMemoryModelDesc				= cast(sql_memory_model_desc as varchar(128)), 	
 	@MemoryUsedPercentage			= substring(cast((cast(committed_kb as decimal(20,2)) / cast(committed_target_kb  as decimal(20,2)) * 100) as varchar),1,5) + ' %',
 		
-	@SQLServerStartTime				= cast(sqlserver_start_time as varchar(300)),
-	@VirtualMachineType				= cast(virtual_machine_type_desc as varchar(300)),
+	@SQLServerStartTime				= cast(sqlserver_start_time as varchar(128)),
+	@VirtualMachineType				= cast(virtual_machine_type_desc as varchar(128)),
 
-	@SchedulerCount					= cast(scheduler_count as varchar(300)),
-	@SchedulerTotalCount			= cast(scheduler_total_count as varchar(300)),
-	@MaxWorkersCount				= cast(max_workers_count as varchar(300))
+	@SchedulerCount					= cast(scheduler_count as varchar(128)),
+	@SchedulerTotalCount			= cast(scheduler_total_count as varchar(128)),
+	@MaxWorkersCount				= cast(max_workers_count as varchar(128))
 
 from sys.dm_os_sys_info
 
@@ -318,6 +320,15 @@ if @EngineEdition not in ('5') begin
 end
 
 
+/* memory limit for Azure SQL DB or elastic pool */
+if @EngineEdition = '5' begin
+
+	set @ProcessMemoryLimitGB = (select cast(cast((cast(process_memory_limit_mb as decimal(32,2)) / 1024) as decimal(32,2)) as varchar(128)) from sys.dm_os_job_object)
+
+end
+
+
+
 /* hadr manager status description */
 if @HadrManagerStatus = '0' begin set @HadrManagerStatus = '0 - Not started, pending communication' end
 if @HadrManagerStatus = '1' begin set @HadrManagerStatus = '1 - Started and running' end
@@ -329,17 +340,21 @@ if @HadrManagerStatus = '2' begin set @HadrManagerStatus = '2 - Not started and 
 /* cpu related */
 if @EngineEdition in ('5','8') begin
 
-	set @CPURateAzureSQL = (select cast(cpu_rate as varchar(300)) from sys.dm_os_job_object)
+	set @CPURateAzureSQL = (select cast(cpu_rate as varchar(128)) from sys.dm_os_job_object)
 
 end
 
 
-set @MaxDOP = (select cast(value_in_use as varchar(300)) from sys.configurations where [name] = 'max degree of parallelism')
+set @MaxDOP = (select cast(value_in_use as varchar(128)) from sys.configurations where [name] = 'max degree of parallelism')
 
 if @MaxDOP is NULL begin
 	set @MaxDOP = '"show advanced options" is turned off'
 end
 
+
+if @MaxDOP = '0' begin
+	set @MaxDOP = @MaxDOP + ' (use all available CPUs for a query)'
+end
 
 
 
@@ -698,10 +713,10 @@ if @command in ('all','table','print') begin
 	insert into #ServerProperties (PropertyName,PropertyValue)
 	values	('/* SQL Server Instance */',''),
 			('',''),			
-			('SQL Server Start Time',@SQLServerStartTime),
-			('Process ID',@ProcessID),
 			('Instance Name',@InstanceName),
 			('Service Name',@ServiceName),
+			('SQL Server Start Time',@SQLServerStartTime),
+			('Process ID',@ProcessID),
 			('Language',@Language),
 			('Instance Default Data Path',@InstanceDefaultDataPath),
 			('Instance Default Log Path',@InstanceDefaultLogPath),
@@ -728,9 +743,17 @@ if @command in ('all','table','print') begin
 	/* memory (sql instance) */
 	insert into #ServerProperties (PropertyName,PropertyValue)
 	values	('/* Memory (SQL Instance) */',''),
-			('',''),
-			('Committed Memory GB',@CommittedMemoryGB),
-			('Committed Target Memory GB',@CommittedTargetMemoryGB),
+			('','')
+
+	if @EngineEdition = '5' begin
+		insert into #ServerProperties (PropertyName,PropertyValue)
+		values	('Memory Limit Azure SQL DB (GB)',@ProcessMemoryLimitGB)
+		
+	end
+
+	insert into #ServerProperties (PropertyName,PropertyValue)
+	values	('Target Server Memory GB (limit for SQL)',@CommittedTargetMemoryGB),
+			('Total Memory GB (consumed by SQL)',@CommittedMemoryGB),
 			('Memory Used Percentage',@MemoryUsedPercentage),
 			('SQL Memory Model Desc',@SQLMemoryModelDesc),
 			('','')
