@@ -1,5 +1,9 @@
--- exec ViewServerProperties
--- use master
+
+
+/* exec ViewServerProperties */
+
+/* use master */
+
 create or alter procedure ViewServerProperties (
 	@command			varchar(20) = 'all'
 	)  
@@ -9,27 +13,18 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.12
-
-Description: shows host OS, server machine, and SQL Server instance-level properties and configuration options
-Works in SQL Server, Azure SQL Database (haven't tested in Azure SQL MI and Synapse analytics yet)
+Version: 1.14
 
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+Description: 
 
-Accepts arguments (@command):
+Shows host OS, server machine (cpu, memory, etc.), and SQL Server instance-level properties and configuration options.
 
-'all'					-- line, table, print commands are used
-'line'					-- output is a single row with many columns
-'multiselect'			-- output is several result sets
-'table'					-- output is in table format
-'print'					-- output is printed 
-
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 History:
 
-
+2026-08-03 -> Aleksey Vitsko - new sections SQL instance memory and cpu, add maxdop and cpu rate (azure sql, job object)
+2026-08-03 -> Aleksey Vitsko - use /* */ for comments only
 2026-08-03 -> Aleksey Vitsko - split cpu and memory (machine) into two sections
 2026-08-01 -> Aleksey Vitsko - additional machine memory info from "sys.dm_os_sys_memory"
 2026-08-01 -> Aleksey Vitsko - rearrange sort order for the output information 
@@ -49,24 +44,42 @@ History:
 2018-07-21 -> Aleksey Vitsko - added machine specs to the output
 2018-07-19 -> Aleksey Vitsko - created procedure
 
+
+Tested on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (RTM)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+- Azure SQL Database
+
+
+*****************************************************************************************************************************************************************
+
+Supported commands (@command parameter):
+
+'all'			- line, table, print commands are used
+'line'			- output is a single row with many columns
+'multiselect'	- output is several result sets
+'table'			- output is in table format
+'print'			- output is printed 
+
 *****************************************************************************************************************************************************************/
 
 
 set nocount on
 
----------------------------------------------------- Variables -------------------------------------------------------
 
--- variables to keep server properties in text format
+/********************************************************** Variables ********************************************************/
+
 declare 
 	
-	-- server
+	/* server */
 	@ServerName								varchar(300) = cast(serverproperty('ServerName') as varchar(300)),
 	@MachineName							varchar(300) = cast(isnull(serverproperty('MachineName'),'n/a')	 as varchar(300)),
 	@ComputerNamePhysicalNetBios			varchar(300) = cast(isnull(serverproperty('ComputerNamePhysicalNetBios'),'n/a') as varchar(300)),
 	@VirtualMachineType						varchar(300) = 'n/a',
 	@ContainerTypeDesc						varchar(300) = 'n/a',
 
-	-- os host info
+	/* OS host info */
 	@HostPlatform							varchar(300) = 'n/a',
 	@HostDistribution						varchar(300) = 'n/a',
 	@HostRelease							varchar(300) = 'n/a',
@@ -75,33 +88,46 @@ declare
 	@OSLanguageVersion						varchar(300) = 'n/a',
 	@HostArchitecture						varchar(300) = 'n/a',
 
-	-- machine specs
-	@LogicalCPUCount						varchar(300) = 'n/a',
-	@HyperThreadRatio						varchar(300) = 'n/a',
-	@NumaNodeCount							varchar(300) = 'n/a',
+	/* cpu (machine) */
 	@SocketCount							varchar(300) = 'n/a',
 	@CoresPerSocket							varchar(300) = 'n/a',
-	
-	@PhysicalMemoryGB						varchar(300) = 'n/a',
+	@HyperThreadRatio						varchar(300) = 'n/a',
+	@LogicalCPUCount						varchar(300) = 'n/a',
+	@NumaNodeCount							varchar(300) = 'n/a',
+				
+
+	/* memory (machine) */
 	@VirtualMemoryGB						varchar(300) = 'n/a',
+	@PhysicalMemoryGB						varchar(300) = 'n/a',
+	@AvailablePhysicalMemoryGB				varchar(300) = 'n/a',
+	@PageFileGB								varchar(300) = 'n/a',
+	@AvailablePageFileGB					varchar(300) = 'n/a',	
+	@SystemCacheGB							varchar(300) = 'n/a',	
+	@KernelPagedPoolGB						varchar(300) = 'n/a',
+	@KernelNonPagedPoolGB					varchar(300) = 'n/a',	
+	@SystemMemoryState						varchar(300) = 'n/a',
+
+
+	/* SQL instance cpu */
+	@MaxDOP									varchar(300) = 'n/a',
+	@CPURateAzureSQL						varchar(300) = 'n/a',
+	@SchedulerCount							varchar(300) = 'n/a',
+	@SchedulerTotalCount					varchar(300) = 'n/a',
+	@MaxWorkersCount						varchar(300) = 'n/a',
+
+	/* SQL instance memory */
+
 	@CommittedMemoryGB						varchar(300) = 'n/a',
 	@CommittedTargetMemoryGB				varchar(300) = 'n/a',
 	@MemoryUsedPercentage					varchar(300) = 'n/a',
 	@SQLMemoryModelDesc						varchar(300) = 'n/a',
+	
 
-	@AvailablePhysicalMemoryGB				varchar(300) = 'n/a',
-	@PageFileGB								varchar(300) = 'n/a',
-	@AvailablePageFileGB					varchar(300) = 'n/a',
-	@SystemCacheGB							varchar(300) = 'n/a',
-	@KernelPagedPoolGB						varchar(300) = 'n/a',
-	@KernelNonPagedPoolGB					varchar(300) = 'n/a',
-	@SystemMemoryState						varchar(300) = 'n/a',
-
-	-- instance
-	@SQLServerStartTime						varchar(300) = 'n/a',
-	@ProcessID								varchar(300) = cast(isnull(serverproperty('ProcessID'),'n/a') as varchar(300)),
+	/* instance */
 	@InstanceName							varchar(300) = cast(isnull(serverproperty('InstanceName'),'(default)') as varchar(300)),
 	@ServiceName							varchar(300) = 'n/a', -- = @@SERVICENAME,
+	@SQLServerStartTime						varchar(300) = 'n/a',
+	@ProcessID								varchar(300) = cast(isnull(serverproperty('ProcessID'),'n/a') as varchar(300)),
 	@Language								varchar(300) = cast(@@LANGUAGE as varchar(300)),
 	@InstanceDefaultDataPath				varchar(300) = cast(isnull(serverproperty('InstanceDefaultDataPath'),'n/a') as varchar(300)),
 	@InstanceDefaultLogPath					varchar(300) = cast(isnull(serverproperty('InstanceDefaultLogPath'),'n/a') as varchar(300)),
@@ -109,17 +135,15 @@ declare
 	@IsSingleUser							varchar(300) = cast(serverproperty('IsSingleUser') as varchar(300)),
 	@MaxConnections							varchar(300) = cast(@@MAX_CONNECTIONS as varchar(300)),
 	@MaxPrecision							varchar(300) = cast(@@MAX_PRECISION as varchar(300)),
-	@SchedulerCount							varchar(300) = 'n/a',
-	@SchedulerTotalCount					varchar(300) = 'n/a',
-	@MaxWorkersCount						varchar(300) = 'n/a',
+	
 		
-	-- edition
+	/* edition */
 	@Edition								varchar(300) = cast(serverproperty('Edition') as varchar(300)),
 	@EditionID								varchar(300) = cast(serverproperty('EditionID')	 as varchar(300)),
 	@EngineEdition							varchar(300) = cast(serverproperty('EngineEdition') as varchar(300)),
 	@EngineEditionDesc						varchar(300),
 	
-	-- version
+	/* version */
 	@BuildCLRVersion						varchar(300) = cast(isnull(serverproperty('BuildCLRVersion'),'n/a') as varchar(300)),
 	@ProductBuild							varchar(300) = cast(serverproperty('ProductBuild') as varchar(300)),
 	@ProductBuildType						varchar(300) = cast(isnull(serverproperty('ProductBuildType'),'n/a') as varchar(300)),
@@ -131,19 +155,19 @@ declare
 	@ProductUpdateReference					varchar(300) = cast(isnull(serverproperty('ProductUpdateReference'),'n/a') as varchar(300)),
 	@VersionFullDesc						varchar(300) = cast(@@VERSION as varchar(300)),
 
-	-- features	
+	/* features */	
 	@IsLocalDB								varchar(300) = cast(isnull(serverproperty('IsLocalDB'),'n/a') as varchar(300)),
 	@IsFullTextInstalled					varchar(300) = cast(serverproperty('IsFullTextInstalled') as varchar(300)),
 	@IsAdvancedAnalyticsInstalled			varchar(300) = cast(isnull(serverproperty('IsAdvancedAnalyticsInstalled'),'n/a') as varchar(300)),
 	@IsPolybaseInstalled					varchar(300) = cast(isnull(serverproperty('IsPolybaseInstalled'),'n/a') as varchar(300)),
 	@IsXTPSupported							varchar(300) = cast(isnull(serverproperty('IsXTPSupported'),'n/a') as varchar(300)),
 
-	-- cluster and hadr
+	/* cluster and hadr */
 	@IsClustered							varchar(300) = cast(isnull(serverproperty('IsClustered'),'n/a') as varchar(300)),
 	@IsHadrEnabled							varchar(300) = cast(isnull(serverproperty('IsHadrEnabled'),'n/a') as varchar(300)),
 	@HadrManagerStatus						varchar(300) = cast(isnull(serverproperty('HadrManagerStatus'),'n/a') as varchar(300)),
 	
-	-- collation
+	/* collation */
 	@Collation								varchar(300) = cast(serverproperty('Collation') as varchar(300)),
 	@CollationID							varchar(300) = cast(serverproperty('CollationID') as varchar(300)),
 	@ComparisonStyle						varchar(300) = cast(serverproperty('ComparisonStyle') as varchar(300)),
@@ -153,22 +177,21 @@ declare
 	@SqlSortOrder							varchar(300) = cast(serverproperty('SqlSortOrder') as varchar(300)),
 	@SqlSortOrderName						varchar(300) = cast(serverproperty('SqlSortOrderName') as varchar(300)),
 	
-	-- filestream
+	/* filestream */
 	@FilestreamShareName					varchar(300) = cast(isnull(serverproperty('FilestreamShareName'),'n/a') as varchar(300)),
 	@FilestreamConfiguredLevel				varchar(300) = cast(serverproperty('FilestreamConfiguredLevel')	 as varchar(300)),
 	@FilestreamEffectiveLevel				varchar(300) = cast(serverproperty('FilestreamEffectiveLevel') as varchar(300)),
 	
-	-- resource database
+	/* resource database */
 	@ResourceVersion						varchar(300) = cast(serverproperty('ResourceVersion') as varchar(300)),
 	@ResourceLastUpdateDateTime				varchar(300) = cast(serverproperty('ResourceLastUpdateDateTime') as varchar(300)),
 
-	-- server config options
+	/* server config options */
 	@ServerConfigOptionsLine				varchar(max) = ''
 
 	
 
-
--- engine edition description
+/* engine edition description */
 set @EngineEditionDesc = case @EngineEdition
 	when '1' then 'Personal or Desktop (before SQL Server 2005)'
 	when '2' then 'Standard (Standard or Web or BI)'
@@ -184,10 +207,10 @@ end
 
 
 
--- SQL Server host os info, service name, server config options
+/* SQL Server host OS info, service name, server config options */
 if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as int) >= 14) or @EngineEdition = '8'  begin
 
-	-- host os
+	/* host os */
 	select
 		@HostPlatform					= cast(host_platform as varchar(300)),
 		@HostRelease					= cast(host_release as varchar(300)),
@@ -206,7 +229,7 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	end
 
 
-	-- service name
+	/* service name */
 	declare @exec varchar(max)
 
 	set @exec = 'create table ##ServiceName_global (tServiceName varchar(300)) 
@@ -218,7 +241,7 @@ if (@EngineEdition not in ('5','6','9','11') and cast(@ProductMajorVersion as in
 	drop table ##ServiceName_global
 
 
-	-- server config options
+	/* server config options */
 	declare @i int = 1
 
 	declare @ServerConfigOptions table (
@@ -243,7 +266,7 @@ end
 
 
 
--- machine and sql server instance info
+/* machine and sql server instance info */
 select
 	@NumaNodeCount					= cast(numa_node_count as varchar(300)),
 	@SocketCount					= cast(socket_count as varchar(300)),
@@ -295,40 +318,59 @@ if @EngineEdition not in ('5') begin
 end
 
 
--- hadr manager status description
+/* hadr manager status description */
 if @HadrManagerStatus = '0' begin set @HadrManagerStatus = '0 - Not started, pending communication' end
 if @HadrManagerStatus = '1' begin set @HadrManagerStatus = '1 - Started and running' end
 if @HadrManagerStatus = '2' begin set @HadrManagerStatus = '2 - Not started and failed' end
 
 
 
----------------------------------------------------- Line -------------------------------------------------------
 
--- output line
+/* cpu related */
+if @EngineEdition in ('5','8') begin
+
+	set @CPURateAzureSQL = (select cast(cpu_rate as varchar(300)) from sys.dm_os_job_object)
+
+end
+
+
+set @MaxDOP = (select cast(value_in_use as varchar(300)) from sys.configurations where [name] = 'max degree of parallelism')
+
+if @MaxDOP is NULL begin
+	set @MaxDOP = '"show advanced options" is turned off'
+end
+
+
+
+
+/************************************************** Show Results ***********************************************/
+
+/********* Line ********/
+
 if @command in ('all','line') begin
 
 select 
-	-- server
+	/* server */
 	@ServerName								[ServerName],
 	@MachineName							[MachineName],
 	@ComputerNamePhysicalNetBios			[ComputerNamePhysicalNetBios],
 	@VirtualMachineType						[VirtualMachineType],
 	@ContainerTypeDesc						[ContainerTypeDesc],
 
-	-- host os info
+	/* host os info */
 	@HostPlatform							[HostPlatform],
 	@HostRelease							[HostRelease],
 	@HostDistribution						[HostDistribution],
 	@HostArchitecture						[HostArchitecture],
 
-	-- cpu (machine)
+	/* cpu (machine) */
 	@SocketCount							[SocketCount],
 	@CoresPerSocket							[CoresPerSocket],
 	@HyperThreadRatio						[HyperThreadRatio],
 	@LogicalCPUCount						[LogicalCPUCount],
 	@NumaNodeCount							[NumaNodeCount],
 	
-	-- memory (machine)
+	/* memory (machine) */
 	@VirtualMemoryGB						[VirtualMemoryGB],
 	@PhysicalMemoryGB						[PhysicalMemoryGB],
 	@AvailablePhysicalMemoryGB				[AvailablePhysicalMemoryGB],
@@ -340,16 +382,12 @@ select
 	@SystemMemoryState						[SystemMemoryState],
 
 
-	-- sql server instance
-	@SQLServerStartTime						[SQLServerStartTime],
-	@CommittedMemoryGB						[CommittedMemoryGB],
-	@CommittedTargetMemoryGB				[CommittedTargetMemoryGB],
-	@MemoryUsedPercentage					[MemoryUsedPercentage],
-	@SQLMemoryModelDesc						[SQLMemoryModelDesc],
-	
-	@ProcessID								[ProcessID],
+	/* sql server instance */
 	@InstanceName							[InstanceName],
 	@ServiceName							[ServiceName],
+	@SQLServerStartTime						[SQLServerStartTime],
+	@ProcessID								[ProcessID],
+	
 	@Language								[Language],
 	@InstanceDefaultDataPath				[InstanceDefaultDataPath],
 	@InstanceDefaultLogPath					[InstanceDefaultLogPath],
@@ -357,18 +395,31 @@ select
 	@IsSingleUser							[IsSingleUser],
 	@MaxConnections							[MaxConnections],
 	@MaxPrecision							[MaxPrecision],
+	
+	
+
+	/* cpu (SQL instance) */
+	@MaxDOP									[MaxDOP],
+	@CPURateAzureSQL						[CPURateAzureSQL],
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
 	@MaxWorkersCount						[MaxWorkersCount],
-	
 
-	-- edition
+
+	/* memory (SQL instance) */
+	@CommittedMemoryGB						[CommittedMemoryGB],
+	@CommittedTargetMemoryGB				[CommittedTargetMemoryGB],
+	@MemoryUsedPercentage					[MemoryUsedPercentage],
+	@SQLMemoryModelDesc						[SQLMemoryModelDesc],
+
+
+	/* edition */
 	@Edition								[Edition],
 	@EditionID								[EditionID],
 	@EngineEdition							[EngineEdition],
 	@EngineEditionDesc						[EngineEditionDesc],
 
-	-- version
+	/* version */
 	@BuildCLRVersion						[BuildCLRVersion],
 	@ProductBuild							[ProductBuild],
 	@ProductBuildType						[ProductBuildType],
@@ -380,19 +431,19 @@ select
 	@ProductUpdateReference					[ProductUpdateReference],
 	@VersionFullDesc						[VersionFullDesc],
 
-	-- features
+	/* features */
 	@IsLocalDB								[IsLocalDB],
 	@IsFullTextInstalled					[IsFullTextInstalled],
 	@IsAdvancedAnalyticsInstalled			[IsAdvancedAnalyticsInstalled],
 	@IsPolybaseInstalled					[IsPolybaseInstalled],
 	@IsXTPSupported							[IsXTPSupported],
 
-	-- cluster and hard
+	/* cluster and hadr */
 	@IsClustered							[IsClustered],
 	@IsHadrEnabled							[IsHadrEnabled],	
 	@HadrManagerStatus						[HadrManagerStatus],
 
-	-- collation
+	/* collation */
 	@Collation								[Collation],
 	@CollationID							[CollationID],
 	@ComparisonStyle						[ComparisonStyle],
@@ -402,31 +453,32 @@ select
 	@SqlSortOrder							[SqlSortOrder],
 	@SqlSortOrderName						[SqlSortOrderName],
 
-	-- filestream
+	/* filestream */
 	@FilestreamShareName					[FilestreamShareName],
 	@FilestreamConfiguredLevel				[FilestreamConfiguredLevel],
 	@FilestreamEffectiveLevel				[FilestreamEffectiveLevel],
 
-	-- resource database
+	/* resource database */
 	@ResourceVersion						[ResourceVersion],
 	@ResourceLastUpdateDateTime				[ResourceLastUpdateDateTime],
 
-	-- server config options
+	/* server config options */
 	@ServerConfigOptionsLine				[ServerConfigOptions]
 
 
-end			-- line section end
+end			/* line section end */
 
 
 
 
----------------------------------------------------- Multiselect -------------------------------------------------------
 
--- output several result sets
+/********* Multiselect *********/
+
+/* output several result sets */
 if @command in ('multiselect') begin
 
 
--- server
+/* server */
 select 
 	@ServerName								[ServerName],
 	@MachineName							[MachineName],
@@ -435,7 +487,7 @@ select
 	@ContainerTypeDesc						[ContainerTypeDesc]
 
 
--- host os info
+/* host os info */
 select
 	@HostPlatform							[HostPlatform],
 	@HostDistribution						[HostDistribution],
@@ -443,7 +495,7 @@ select
 	@HostArchitecture						[HostArchitecture]
 
 
--- cpu (machine)
+/* cpu (machine) */
 select	
 	@SocketCount							[SocketCount],
 	@CoresPerSocket							[CoresPerSocket],
@@ -451,7 +503,8 @@ select
 	@LogicalCPUCount						[LogicalCPUCount],
 	@NumaNodeCount							[NumaNodeCount]
 	
-	-- memory (machine)
+
+/* memory (machine) */
 select	
 	@VirtualMemoryGB						[VirtualMemoryGB],
 	@PhysicalMemoryGB						[PhysicalMemoryGB],
@@ -464,30 +517,40 @@ select
 	@SystemMemoryState						[SystemMemoryState]
 		
 
--- instance
+/* sql instance */
 select	
-	@SQLServerStartTime						[SQLServerStartTime],
-	@CommittedMemoryGB						[CommittedMemoryGB],
-	@CommittedTargetMemoryGB				[CommittedTargetMemoryGB],
-	@MemoryUsedPercentage					[MemoryUsedPercentage],
-	@SQLMemoryModelDesc						[SQLMemoryModelDesc],
-	
-	@ProcessID								[ProcessID],
 	@InstanceName							[InstanceName],
 	@ServiceName							[ServiceName],
+	@SQLServerStartTime						[SQLServerStartTime],
+	@ProcessID								[ProcessID],
 	@Language								[Language],
 	@InstanceDefaultDataPath				[InstanceDefaultDataPath],
 	@InstanceDefaultLogPath					[InstanceDefaultLogPath],
 	@IsIntegratedSecurityOnly				[IsIntegratedSecurityOnly],
 	@IsSingleUser							[IsSingleUser],
 	@MaxConnections							[MaxConnections],
-	@MaxPrecision							[MaxPrecision],
+	@MaxPrecision							[MaxPrecision]
+	
+	
+
+/* cpu (sql instance) */
+select
+	@MaxDOP									[MaxDOP],
+	@CPURateAzureSQL						[CPURateAzureSQL],
 	@SchedulerCount							[SchedulerCount],
 	@SchedulerTotalCount					[SchedulerTotalCount],
 	@MaxWorkersCount						[MaxWorkersCount]
 	
 
--- edition
+/* memory (sql instance) */
+select
+	@CommittedMemoryGB						[CommittedMemoryGB],
+	@CommittedTargetMemoryGB				[CommittedTargetMemoryGB],
+	@MemoryUsedPercentage					[MemoryUsedPercentage],
+	@SQLMemoryModelDesc						[SQLMemoryModelDesc]
+
+
+/* edition */
 select
 	@Edition								[Edition],
 	@EditionID								[EditionID],
@@ -495,7 +558,7 @@ select
 	@EngineEditionDesc						[EngineEditionDesc]
 
 
--- version
+/* version */
 select	
 	@BuildCLRVersion						[BuildCLRVersion],
 	@ProductBuild							[ProductBuild],
@@ -509,7 +572,7 @@ select
 	@VersionFullDesc						[VersionFullDesc]
 
 
--- features
+/* features */
 select
 	@IsLocalDB								[IsLocalDB],
 	@IsFullTextInstalled					[IsFullTextInstalled],
@@ -518,14 +581,14 @@ select
 	@IsXTPSupported							[IsXTPSupported]
 
 
--- cluster and hard
+/* cluster and hard */
 select	
 	@IsClustered							[IsClustered],
 	@IsHadrEnabled							[IsHadrEnabled],	
 	@HadrManagerStatus						[HadrManagerStatus]
 
 
--- collation
+/* collation */
 select	
 	@Collation								[Collation],
 	@CollationID							[CollationID],
@@ -537,30 +600,30 @@ select
 	@SqlSortOrderName						[SqlSortOrderName]
 
 
--- filestream
+/* filestream */
 select	
 	@FilestreamShareName					[FilestreamShareName],
 	@FilestreamConfiguredLevel				[FilestreamConfiguredLevel],
 	@FilestreamEffectiveLevel				[FilestreamEffectiveLevel]
 
--- resource database
+/* resource database */
 select
 	@ResourceVersion						[ResourceVersion],
 	@ResourceLastUpdateDateTime				[ResourceLastUpdateDateTime]
 
 
--- server config options
+/* server config options */
 select
 	@ServerConfigOptionsLine				[ServerConfigOptions]
 
 	
-end			-- multiselect section end
+end			/* multiselect section end */
 
 
 
 
 
----------------------------------------------------- Table -------------------------------------------------------
+/********* Table *********/
 
 
 if @command in ('all','table','print') begin
@@ -576,10 +639,10 @@ if @command in ('all','table','print') begin
 		PropertyNameValue		varchar(400) default '')
 
 
-	-- server
+	/* server */
 	insert into #ServerProperties (PropertyName,PropertyValue)
 	values	('',''),
-			('-- Server --',''),
+			('/* Server */',''),
 			('',''),
 			('Server Name',@ServerName),
 			('Machine Name',@MachineName),
@@ -589,9 +652,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- host os
+	/* host os */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Host OS --',''),
+	values	('/* Host OS */',''),
 			('',''),
 			('Host Platform',@HostPlatform),
 			('Host Distribution',@HostDistribution),
@@ -603,9 +666,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- cpu
+	/* cpu (machine) */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- CPU (Machine) --',''),
+	values	('/* CPU (Machine) */',''),
 			('',''),
 			('Socket Count',@SocketCount),
 			('Cores Per Socket',@CoresPerSocket),
@@ -615,9 +678,9 @@ if @command in ('all','table','print') begin
 			('','')
 		
 	
-	-- memory
+	/* memory (machine) */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Memory (Machine) --',''),
+	values	('/* Memory (Machine) */',''),
 			('',''),
 			('Virtual Memory GB',@VirtualMemoryGB),
 			('Physical Memory GB',@PhysicalMemoryGB),	
@@ -631,16 +694,11 @@ if @command in ('all','table','print') begin
 			('','')
 			
 								
-	-- instance
+	/* sql instance */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- SQL Server Instance --',''),
-			('',''),
+	values	('/* SQL Server Instance */',''),
+			('',''),			
 			('SQL Server Start Time',@SQLServerStartTime),
-			('Committed Memory GB',@CommittedMemoryGB),
-			('Committed Target Memory GB',@CommittedTargetMemoryGB),
-			('Memory Used Percentage',@MemoryUsedPercentage),
-			('SQL Memory Model Desc',@SQLMemoryModelDesc),
-
 			('Process ID',@ProcessID),
 			('Instance Name',@InstanceName),
 			('Service Name',@ServiceName),
@@ -651,15 +709,35 @@ if @command in ('all','table','print') begin
 			('Is Single User',@IsSingleUser),
 			('Max Connections',@MaxConnections),
 			('Max Precision',@MaxPrecision),
+			('','')
+
+
+	/* cpu (sql instance) */
+	insert into #ServerProperties (PropertyName,PropertyValue)
+	values	('/* CPU (SQL Instance) */',''),
+			('',''),
+			('Max Degree Of Paralellism',@MaxDOP),
+			('CPU Rate (Azure SQL)',@CPURateAzureSQL),
+			('Scheduler Count',@SchedulerCount),
 			('Scheduler Count',@SchedulerCount),
 			('Scheduler Total Count',@SchedulerTotalCount),
 			('Max Workers Count',@MaxWorkersCount),
 			('','')
 
 
-	-- edition
+	/* memory (sql instance) */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Instance Edition --',''),
+	values	('/* Memory (SQL Instance) */',''),
+			('',''),
+			('Committed Memory GB',@CommittedMemoryGB),
+			('Committed Target Memory GB',@CommittedTargetMemoryGB),
+			('Memory Used Percentage',@MemoryUsedPercentage),
+			('SQL Memory Model Desc',@SQLMemoryModelDesc),
+			('','')
+
+	/* edition */
+	insert into #ServerProperties (PropertyName,PropertyValue)
+	values	('/* Instance Edition */',''),
 			('',''),
 			('Edition',@Edition),
 			('Edition ID',@EditionID),
@@ -668,9 +746,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- version
+	/* version */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Instance Version --',''),
+	values	('/* Instance Version */',''),
 			('',''),
 			('Build CLR Version',@BuildCLRVersion),
 			('Product Build',@ProductBuild),
@@ -685,9 +763,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- features
+	/* features */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('--  Instance Features --',''),
+	values	('/*  Instance Features */',''),
 			('',''),
 			('Is Local DB',@IsLocalDB),
 			('Is Full Text Installed',@IsFullTextInstalled),
@@ -697,9 +775,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- cluster and hadr
+	/* cluster and hadr */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Cluster and HADR --',''),
+	values	('/* Cluster and HADR */',''),
 			('',''),
 			('Is Clustered',@IsClustered),
 			('Is Hadr Enabled',@IsHadrEnabled),
@@ -707,9 +785,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 		
-	-- collation
+	/* collation */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Instance Collation --',''),
+	values	('/* Instance Collation */',''),
 			('',''),
 			('Collation',@Collation),
 			('Collation ID',@CollationID),
@@ -721,9 +799,9 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- filestream
+	/* filestream */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Instace Filestream --',''),
+	values	('/* Instace Filestream */',''),
 			('',''),
 			('Filestream Share Name',@FilestreamShareName),
 			('Filestream Configured Level',@FilestreamConfiguredLevel),
@@ -731,18 +809,18 @@ if @command in ('all','table','print') begin
 			('','')
 
 
-	-- resource database
+	/* resource database */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Instance Resource Database --',''),
+	values	('/* Instance Resource Database */',''),
 			('',''),
 			('Resource Version',@ResourceVersion),
 			('Resource Last Update Date Time',@ResourceLastUpdateDateTime),
 			('','')
 
 
-	-- server config options
+	/* server config options */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('-- Server Config Options --',''),
+	values	('/* Server Config Options */',''),
 			('','')
 
 	insert into #ServerProperties (PropertyName,PropertyValue)
@@ -750,49 +828,47 @@ if @command in ('all','table','print') begin
 	from @ServerConfigOptions
 
  
-	-- show table data 
+	/* show table data */
 	if @command in ('all','table') begin
 		select PropertyName, PropertyValue 
 		from #ServerProperties
 	end
 
-end				-- table section end
+end				/* table section end */
 
 
 
 
-
----------------------------------------------------- Print -------------------------------------------------------
+/************* Print ************/
 
 if @command in ('all','print') begin
 
+	/* combined line */
+	update #ServerProperties
+		set PropertyNameValue = PropertyName + ': ' + PropertyValue
+	where PropertyName <> '' and PropertyName not like '-- %'
 
--- combined line
-update #ServerProperties
-	set PropertyNameValue = PropertyName + ': ' + PropertyValue
-where PropertyName <> '' and PropertyName not like '-- %'
-
-update #ServerProperties
-	set PropertyNameValue = PropertyName 
-where PropertyName like '-- %'
+	update #ServerProperties
+		set PropertyNameValue = PropertyName 
+	where PropertyName like '-- %'
 
 
--- fill text variable for print
-declare 
-	@counter int = 2, 
-	@print varchar(max) = ''
+	/* fill text variable for print */
+	declare 
+		@counter int = 2, 
+		@print varchar(max) = ''
 	
-while @counter <= (select max(ID) from #ServerProperties) begin
-	set @print = @print + (select PropertyNameValue from #ServerProperties where ID = @counter) + '
-'
-	set @counter += 1
-end
+	while @counter <= (select max(ID) from #ServerProperties) begin
+		set @print = @print + (select PropertyNameValue from #ServerProperties where ID = @counter) + '
+	'
+		set @counter += 1
+	end
 	
 
--- print the result
-print @print
+	/* print the result */
+	print @print
 
-end				-- print section end
+end				/* print section end */
 
 
 end
