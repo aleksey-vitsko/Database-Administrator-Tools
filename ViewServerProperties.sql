@@ -13,7 +13,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.17
+Version: 1.19
 
 
 Description: 
@@ -23,6 +23,8 @@ Shows host OS, server machine (cpu, memory, etc.), and SQL Server instance-level
 
 History:
 
+2026-08-04 -> Aleksey Vitsko - added availability groups info
+2026-08-04 -> Aleksey Vitsko - added more information from serverproperty()
 2026-08-03 -> Aleksey Vitsko - fix issue with missing "server config options" on Azure SQL DB
 2026-08-03 -> Aleksey Vitsko - additional memory info for Azure SQL DB; other adjustments
 2026-08-03 -> Aleksey Vitsko - new sections SQL instance memory and cpu, add maxdop and cpu rate (azure sql, job object)
@@ -134,7 +136,9 @@ declare
 	@Language								varchar(128) = cast(@@LANGUAGE as varchar(128)),
 	@InstanceDefaultDataPath				varchar(128) = cast(isnull(serverproperty('InstanceDefaultDataPath'),'n/a') as varchar(128)),
 	@InstanceDefaultLogPath					varchar(128) = cast(isnull(serverproperty('InstanceDefaultLogPath'),'n/a') as varchar(128)),
+	@InstanceDefaultBackupPath				varchar(128) = cast(isnull(serverproperty('InstanceDefaultBackupPath'),'n/a') as varchar(128)),
 	@IsIntegratedSecurityOnly				varchar(128) = cast(serverproperty('IsIntegratedSecurityOnly') as varchar(128)),
+	@IsExternalAuthenticationOnly			varchar(128) = cast(isnull(serverproperty('IsExternalAuthenticationOnly'),'n/a') as varchar(128)),
 	@IsSingleUser							varchar(128) = cast(serverproperty('IsSingleUser') as varchar(128)),
 	@MaxConnections							varchar(128) = cast(@@MAX_CONNECTIONS as varchar(128)),
 	@MaxPrecision							varchar(128) = cast(@@MAX_PRECISION as varchar(128)),
@@ -158,18 +162,24 @@ declare
 	@ProductUpdateReference					varchar(128) = cast(isnull(serverproperty('ProductUpdateReference'),'n/a') as varchar(128)),
 	@VersionFullDesc						varchar(128) = cast(@@VERSION as varchar(128)),
 
-	/* features */	
+	/* instance features and states */	
 	@IsLocalDB								varchar(128) = cast(isnull(serverproperty('IsLocalDB'),'n/a') as varchar(128)),
 	@IsFullTextInstalled					varchar(128) = cast(serverproperty('IsFullTextInstalled') as varchar(128)),
 	@IsAdvancedAnalyticsInstalled			varchar(128) = cast(isnull(serverproperty('IsAdvancedAnalyticsInstalled'),'n/a') as varchar(128)),
 	@IsPolybaseInstalled					varchar(128) = cast(isnull(serverproperty('IsPolybaseInstalled'),'n/a') as varchar(128)),
 	@IsXTPSupported							varchar(128) = cast(isnull(serverproperty('IsXTPSupported'),'n/a') as varchar(128)),
+	@IsExternalGovernanceEnabled			varchar(128) = cast(isnull(serverproperty('IsExternalGovernanceEnabled'),'n/a') as varchar(128)),
+	@IsTempDbMetadataMemoryOptimized		varchar(128) = cast(isnull(serverproperty('IsTempDbMetadataMemoryOptimized'),'n/a') as varchar(128)),
+	@IsServerSuspendedForSnapshotBackup		varchar(128) = cast(isnull(serverproperty('IsServerSuspendedForSnapshotBackup'),'n/a') as varchar(128)),
+	@SuspendedDatabaseCount					varchar(128) = cast(isnull(serverproperty('SuspendedDatabaseCount'),'n/a') as varchar(128)),
+
 
 	/* cluster and hadr */
 	@IsClustered							varchar(128) = cast(isnull(serverproperty('IsClustered'),'n/a') as varchar(128)),
 	@IsHadrEnabled							varchar(128) = cast(isnull(serverproperty('IsHadrEnabled'),'n/a') as varchar(128)),
 	@HadrManagerStatus						varchar(128) = cast(isnull(serverproperty('HadrManagerStatus'),'n/a') as varchar(128)),
-	
+	@AGInfo									varchar(300) = 'n/a',
+
 	/* collation */
 	@Collation								varchar(128) = cast(serverproperty('Collation') as varchar(128)),
 	@CollationID							varchar(128) = cast(serverproperty('CollationID') as varchar(128)),
@@ -370,6 +380,116 @@ end
 
 
 
+/* clustered - standalone or FCI */
+if @IsClustered = '0' begin 
+	set @IsClustered = '0 - Standalone Instance'
+end
+
+if @IsClustered = '1' begin 
+	set @IsClustered = '1 - Failover Cluster Instance'
+end
+
+
+/* HADR enabled */
+if @IsHADREnabled = '0' begin
+	set @IsHADREnabled = '0 - Always On AG feature is disabled'
+end
+
+if @IsHADREnabled = '1' begin
+	set @IsHADREnabled = '1 - Always On AG feature is enabled'
+end
+
+
+
+
+/* availability groups info */
+if (select count(*) from sys.availability_groups) > 0 begin
+
+    set @AGInfo = ''
+
+    set @i = 1
+
+    drop table if exists #AGInfo
+
+    create table #AGInfo (
+        ID                      int identity primary key,
+        [name]                  varchar(128),
+        cluster_type_desc       varchar(128)
+        )
+
+    insert into #AGInfo ([name], cluster_type_desc)
+    select
+        [name],
+        cluster_type_desc
+    from sys.availability_groups
+
+    while @i <= (select count(*) from sys.availability_groups) begin
+
+        set @AGInfo = (select @AGInfo + [name] + ' (Cluster: ' + upper(cluster_type_desc) + ')' from #AGInfo where ID = @i)
+
+        if @i < (select count(*) from sys.availability_groups) begin set @AGInfo = @AGInfo + '; '  end
+
+        set @i = @i + 1
+
+    end
+
+end
+
+
+
+/* windows auth and entra auth only */
+if @IsIntegratedSecurityOnly = '0' begin
+	set @IsIntegratedSecurityOnly = '0 - Windows Auth and SQL Auth'
+end
+
+if @IsIntegratedSecurityOnly = '0' begin 
+	set @IsIntegratedSecurityOnly = '1 - Windows Auth Only' 
+end
+
+
+if @IsExternalAuthenticationOnly = '0' begin
+	set @IsExternalAuthenticationOnly = '0 - Microsoft Entra Auth and SQL Auth'
+end 
+
+
+if @IsExternalAuthenticationOnly = '1' begin
+	set @IsExternalAuthenticationOnly = '1 - Microsoft Entra Auth Only'
+end 
+
+
+
+/* in memory OLTP */
+if @IsXTPSupported = '0' begin
+	set @IsXTPSupported = '0 - In-Memory OLTP is NOT supported'
+end
+
+if @IsXTPSupported = '1' begin
+	set @IsXTPSupported = '1 - In-Memory OLTP is supported'
+end
+
+
+
+/* Microsoft purview */
+if @IsExternalGovernanceEnabled = '0' begin
+	set @IsExternalGovernanceEnabled = '0 - Microsoft Purview access policies are disabled'
+end
+
+if @IsExternalGovernanceEnabled = '1' begin
+	set @IsExternalGovernanceEnabled = '1 - Microsoft Purview access policies are enabled'
+end
+
+
+/* suspended for snapshot backup */
+if @IsServerSuspendedForSnapshotBackup = '0' begin
+	set @IsServerSuspendedForSnapshotBackup = '0 - Not suspended'
+end
+
+if @IsServerSuspendedForSnapshotBackup = '1' begin
+	set @IsServerSuspendedForSnapshotBackup = '1 - Server suspended, requires thaw'
+end
+
+
+
 /************************************************** Show Results ***********************************************/
 
 /********* Line ********/
@@ -418,7 +538,9 @@ select
 	@Language								[Language],
 	@InstanceDefaultDataPath				[InstanceDefaultDataPath],
 	@InstanceDefaultLogPath					[InstanceDefaultLogPath],
+	@InstanceDefaultBackupPath				[InstanceDefaultBackupPath],
 	@IsIntegratedSecurityOnly				[IsIntegratedSecurityOnly],
+	@IsExternalAuthenticationOnly			[IsExternalAuthenticationOnly],
 	@IsSingleUser							[IsSingleUser],
 	@MaxConnections							[MaxConnections],
 	@MaxPrecision							[MaxPrecision],
@@ -458,17 +580,24 @@ select
 	@ProductUpdateReference					[ProductUpdateReference],
 	@VersionFullDesc						[VersionFullDesc],
 
-	/* features */
+
+	/* instance features and states */
 	@IsLocalDB								[IsLocalDB],
 	@IsFullTextInstalled					[IsFullTextInstalled],
 	@IsAdvancedAnalyticsInstalled			[IsAdvancedAnalyticsInstalled],
 	@IsPolybaseInstalled					[IsPolybaseInstalled],
 	@IsXTPSupported							[IsXTPSupported],
+	@IsExternalGovernanceEnabled			[IsExternalGovernanceEnabled],
+	@IsTempDbMetadataMemoryOptimized		[IsTempDbMetadataMemoryOptimized],
+	@IsServerSuspendedForSnapshotBackup		[IsServerSuspendedForSnapshotBackup],
+	@SuspendedDatabaseCount					[SuspendedDatabaseCount],
+
 
 	/* cluster and hadr */
 	@IsClustered							[IsClustered],
 	@IsHadrEnabled							[IsHadrEnabled],	
 	@HadrManagerStatus						[HadrManagerStatus],
+	@AGInfo									[AGInfo],
 
 	/* collation */
 	@Collation								[Collation],
@@ -553,7 +682,9 @@ select
 	@Language								[Language],
 	@InstanceDefaultDataPath				[InstanceDefaultDataPath],
 	@InstanceDefaultLogPath					[InstanceDefaultLogPath],
+	@InstanceDefaultBackupPath				[InstanceDefaultBackupPath],
 	@IsIntegratedSecurityOnly				[IsIntegratedSecurityOnly],
+	@IsExternalAuthenticationOnly			[IsExternalAuthenticationOnly],
 	@IsSingleUser							[IsSingleUser],
 	@MaxConnections							[MaxConnections],
 	@MaxPrecision							[MaxPrecision]
@@ -599,20 +730,25 @@ select
 	@VersionFullDesc						[VersionFullDesc]
 
 
-/* features */
+/* instance features and states */
 select
 	@IsLocalDB								[IsLocalDB],
 	@IsFullTextInstalled					[IsFullTextInstalled],
 	@IsAdvancedAnalyticsInstalled			[IsAdvancedAnalyticsInstalled],
 	@IsPolybaseInstalled					[IsPolybaseInstalled],
-	@IsXTPSupported							[IsXTPSupported]
+	@IsXTPSupported							[IsXTPSupported],
+	@IsExternalGovernanceEnabled			[IsExternalGovernanceEnabled],
+	@IsTempDbMetadataMemoryOptimized		[IsTempDbMetadataMemoryOptimized],
+	@IsServerSuspendedForSnapshotBackup		[IsServerSuspendedForSnapshotBackup],
+	@SuspendedDatabaseCount					[SuspendedDatabaseCount]
 
 
-/* cluster and hard */
+/* cluster and hadr */
 select	
 	@IsClustered							[IsClustered],
 	@IsHadrEnabled							[IsHadrEnabled],	
-	@HadrManagerStatus						[HadrManagerStatus]
+	@HadrManagerStatus						[HadrManagerStatus],
+	@AGInfo									[AGInfo]
 
 
 /* collation */
@@ -732,7 +868,9 @@ if @command in ('all','table','print') begin
 			('Language',@Language),
 			('Instance Default Data Path',@InstanceDefaultDataPath),
 			('Instance Default Log Path',@InstanceDefaultLogPath),
+			('Instance Default Backup Path',@InstanceDefaultBackupPath),
 			('Is Integrated Security Only',@IsIntegratedSecurityOnly),
+			('Is External Authentication Only',@IsExternalAuthenticationOnly),
 			('Is Single User',@IsSingleUser),
 			('Max Connections',@MaxConnections),
 			('Max Precision',@MaxPrecision),
@@ -800,13 +938,17 @@ if @command in ('all','table','print') begin
 
 	/* features */
 	insert into #ServerProperties (PropertyName,PropertyValue)
-	values	('/*  Instance Features */',''),
+	values	('/*  Instance Features and States */',''),
 			('',''),
 			('Is Local DB',@IsLocalDB),
 			('Is Full Text Installed',@IsFullTextInstalled),
 			('Is Advanced Analytics Installed',@IsAdvancedAnalyticsInstalled),
 			('Is Polybase Installed',@IsPolybaseInstalled),
 			('Is XTP Supported',@IsXTPSupported),
+			('Is External Governance Enabled',@IsExternalGovernanceEnabled),
+			('Is TempDb Metadata Memory Optimized',@IsTempDbMetadataMemoryOptimized),
+			('Is Server Suspended For Snapshot Backup',@IsServerSuspendedForSnapshotBackup),
+			('Suspended Database Count',@SuspendedDatabaseCount),
 			('','')
 
 
@@ -815,8 +957,9 @@ if @command in ('all','table','print') begin
 	values	('/* Cluster and HADR */',''),
 			('',''),
 			('Is Clustered',@IsClustered),
-			('Is Hadr Enabled',@IsHadrEnabled),
-			('Hadr Manager Status',@HadrManagerStatus),
+			('Is HADR Enabled',@IsHadrEnabled),
+			('HADR Manager Status',@HadrManagerStatus),
+			('Availability Groups',@AGInfo),
 			('','')
 
 		
