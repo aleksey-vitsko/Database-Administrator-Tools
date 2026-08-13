@@ -1,5 +1,8 @@
 
 
+/* exec MemoryManagerInfo @ExpertMode = 1 */
+
+
 create or alter procedure MemoryManagerInfo (
 	@ExpertMode			tinyint = 0)
 
@@ -18,6 +21,7 @@ Purpose: shows current memory usage
 
 History:
 
+2026-08-13 - Aleksey Vitsko - added "process memory limit" for Azure SQL Database
 2026-08-13 --> Aleksey Vitsko - collect and show system-level memory specs in Expert Mode
 2025-03-27 --> Aleksey Vitsko - show all memory clerks in Expert mode (to include SQLBUFFERPOOL)
 2024-03-15 --> Aleksey Vitsko - percentage for "Maximum Workspace Memory" should be calculated in relation to "Target Server Memory", not "Total Server Memory" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/3)
@@ -209,8 +213,7 @@ if @ExpertMode = 1 begin
 			@SystemCacheGB						decimal(32,2),
 			@KernelPagedPoolGB					decimal(32,2),
 			@KernelNonPagedPoolGB				decimal(32,2),
-			@SystemMemoryState					nvarchar(256),
-			@ProcessMemoryLimitGB				decimal(32,2)
+			@SystemMemoryState					nvarchar(256)			
 
 		select 
 			@TotalPhysicalMemoryGB = cast(cast(total_physical_memory_kb as decimal(32,2)) / 1024 / 1024	 as decimal(32,2)),
@@ -251,6 +254,19 @@ if @ExpertMode = 1 begin
 			sys_memory_desc,
 			[GB]
 		from #SysMemory
+
+	end
+
+
+	if @EngineEdition = 5 begin
+		
+		/* memory limit for Azure SQL DB or elastic pool */
+		declare 
+			@ProcessMemoryLimitGB		decimal(32,2)
+		
+		set @ProcessMemoryLimitGB = (select cast(cast((cast(process_memory_limit_mb as decimal(32,2)) / 1024) as decimal(32,2)) as varchar(128)) from sys.dm_os_job_object)
+
+		select @ProcessMemoryLimitGB [Azure_SQL_DB_process_memory_limit_GB]
 
 	end
 
