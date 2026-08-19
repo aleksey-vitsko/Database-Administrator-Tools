@@ -3,12 +3,11 @@
 create or alter procedure TempDBInfo   
 as begin 
 
-
 /************************************************ TempDBInfo procedure *************************************************
 
 Author: Aleksey Vitsko
 
-Version: 1.05
+Version: 1.07
 
 Description: this procedure shows what's going on with TempDB:
 
@@ -18,17 +17,30 @@ Also, break down of how TempDB is currently used (user objects, internal objects
 
 History:
 
-2026-01-09 -->	Aleksey Vitsko - refactored the way of showing summary info
-2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, for correct tempdb file sizes on SQL MI 
-2026-01-08 -->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, to enable compatibility with SQL DB
+2026-08-19 ->	Aleksey Vitsko - added TempDB related performance metrics and settings
+2026-08-19 ->	Aleksey Vitsko - updated column names in summary output
+2026-08-19 ->	Aleksey Vitsko - added tempdb virtal log files number
+2026-08-19 ->	Aleksey Vitsko - added "tested on..." section; performed tests 
 
-2022-09-06 -->	Aleksey Vitsko - removed @command parameter
-2022-09-06 -->	Aleksey Vitsko - updated description of stored procedure, did some cleanup
-2022-09-05 -->	Aleksey Vitsko - show "Percentage_Full" for log file in data/log file details section
-2022-09-05 -->	Aleksey Vitsko - change order by to "Current_MB desc" for sessions and tasks that use TempDB
-2022-09-05 -->	Aleksey Vitsko - updates to TempDB summary info
+2026-01-09 ->	Aleksey Vitsko - refactored the way of showing summary info
+2026-01-08 ->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, for correct tempdb file sizes on SQL MI 
+2026-01-08 ->	Aleksey Vitsko - use the tempdb.sys.database_files instead of sys.master_files, to enable compatibility with SQL DB
 
-2020-08-04 -->	Aleksey Vitsko - created procedure
+2022-09-06 ->	Aleksey Vitsko - removed @command parameter
+2022-09-06 ->	Aleksey Vitsko - updated description of stored procedure, did some cleanup
+2022-09-05 ->	Aleksey Vitsko - show "Percentage_Full" for log file in data/log file details section
+2022-09-05 ->	Aleksey Vitsko - change order by to "Current_MB desc" for sessions and tasks that use TempDB
+2022-09-05 ->	Aleksey Vitsko - updates to TempDB summary info
+
+2020-08-04 ->	Aleksey Vitsko - created procedure
+
+
+Tested on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (RTM)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+- Azure SQL Database
+
 
 *************************************************************************************************************************/
 
@@ -40,19 +52,26 @@ set nocount on
 
 /* variables */
 declare 
-	@TempDB_Total_MB					int,
+	@TempDB_Total_MB						int,
 	
-	@DataFile_Total_MB					int,
-	@DataFile_NumberOfFiles				int,
-	@DataFile_SpaceUsed_Percent			decimal(5,2), 
+	@DataFile_Total_MB						int,
+	@DataFile_NumberOfFiles					int,
+	@DataFile_SpaceUsed_Percent				decimal(5,2), 
 
-	@DataFile_Allocated_MB				int,
-	@DataFile_Unallocated_MB			int,
+	@DataFile_Allocated_MB					int,
+	@DataFile_Unallocated_MB				int,
 
-	@LogFile_Total_MB					int,
-	@LogFile_NumberOfFiles				int,
-	@Log_SpaceUsed_Percent				decimal(5,2), 
-	@Log_SpaceUsed_MB					int
+	@LogFile_Total_MB						int,
+	@LogFile_NumberOfFiles					int,
+	@Log_SpaceUsed_Percent					decimal(5,2), 
+	@Log_SpaceUsed_MB						int,
+
+	@server_uptime							varchar(50),
+	@TempDB_Metadata_Memory_Optimized		varchar(10),
+	@Temp_Tables_Creation_Rate				bigint,
+	@Active_Temp_Tables						bigint,
+	@Temp_Tables_for_Destruction			bigint,
+	@TempDB_Virtual_Log_Files				int
 
 
 
@@ -192,16 +211,16 @@ end
 drop table if exists #TempDB_Info 
 
 create table #TempDB_Info (
-	Property			varchar(50),
-	Files				int,
-	Size_MB				int,
-	Size_GB				decimal(16,2),
-	Fullness			varchar(50)
+	File_Type					varchar(50),
+	Files						int,
+	Total_Size_MB				int,
+	Total_Size_GB				decimal(16,2),
+	Fullness					varchar(50)
 	)
 
-insert into #TempDB_Info (Property, Files, Size_MB, Size_GB, Fullness)
-values	('Data File(s)',@DataFile_NumberOfFiles, @DataFile_Total_MB, cast(@DataFile_Total_MB as decimal(16,2)) / 1024, cast(@DataFile_SpaceUsed_Percent as varchar) + ' %'),
-		('Log File(s)',@LogFile_NumberOfFiles, @LogFile_Total_MB, cast(@LogFile_Total_MB as decimal(16,2))  / 1024, cast(@Log_SpaceUsed_Percent as varchar) + ' %')
+insert into #TempDB_Info (File_Type, Files, Total_Size_MB, Total_Size_GB, Fullness)
+values	('Data File',@DataFile_NumberOfFiles, @DataFile_Total_MB, cast(@DataFile_Total_MB as decimal(16,2)) / 1024, cast(@DataFile_SpaceUsed_Percent as varchar) + ' %'),
+		('Log File',@LogFile_NumberOfFiles, @LogFile_Total_MB, cast(@LogFile_Total_MB as decimal(16,2))  / 1024, cast(@Log_SpaceUsed_Percent as varchar) + ' %')
 
 
 
@@ -277,9 +296,59 @@ from sys.dm_db_task_space_usage tsu
 
 		
 
+/* TempDB related peeformance metrics and settings */
+
+select 
+	@Temp_Tables_Creation_Rate = cntr_value
+from sys.dm_os_performance_counters
+where	counter_name = 'Temp Tables Creation Rate'
+
+select 
+	@Active_Temp_Tables = cntr_value
+from sys.dm_os_performance_counters
+where	counter_name = 'Active Temp Tables'
+
+select 
+	@Temp_Tables_for_Destruction = cntr_value
+from sys.dm_os_performance_counters
+where	counter_name = 'Temp Tables For Destruction'
 
 
-/***************************************************8 Show Data ************************************************/
+
+set @server_uptime = (
+SELECT 
+    CONCAT(
+        ms_uptime / (1000*60*60*24), ':',
+        RIGHT('00' + CAST((ms_uptime / (1000*60*60)) % 24 AS varchar(2)), 2), ':',
+        RIGHT('00' + CAST((ms_uptime / (1000*60)) % 60 AS varchar(2)), 2), ':',
+        RIGHT('00' + CAST((ms_uptime / 1000) % 60 AS varchar(2)), 2), '.',
+        RIGHT('000' + CAST(ms_uptime % 1000 AS varchar(3)), 3)
+    ) AS server_uptime
+FROM (
+    SELECT DATEDIFF_BIG(ms, sqlserver_start_time, SYSDATETIME()) AS ms_uptime
+    FROM sys.dm_os_sys_info
+) AS x)
+
+
+set @TempDB_Metadata_Memory_Optimized = (
+	select 
+		case value_in_use
+			when 1 then 'Enabled'
+			when 0 then 'Disabled'
+		end
+	from sys.configurations where name = 'tempdb metadata memory-optimized'
+)
+
+if @TempDB_Metadata_Memory_Optimized is NULL set @TempDB_Metadata_Memory_Optimized = 'Disabled'
+
+
+
+/* TempDB virtual log files */
+set @TempDB_Virtual_Log_Files = (select count(*) from sys.dm_db_log_info (2))
+
+
+
+/*************************************************** Show Data ************************************************/
 
 /* show summary info */
 select * 
@@ -319,6 +388,18 @@ select *
 from #TempDB_Tasks
 where Current_MB > 0
 order by Current_MB desc
+
+
+
+/* TempDB related performance metrics and settings */
+select 
+	@server_uptime																		[Server_Uptime],
+	@Temp_Tables_Creation_Rate / datediff(second,sqlserver_start_time,getdate())		[Temp_Tables_Creation/Sec],
+	@Active_Temp_Tables																	[Active_Temp_Tables_Worktables_Workfiles],
+	@Temp_Tables_for_Destruction														[Temp_Tables_for_Destruction],
+	@TempDB_Virtual_Log_Files															[TempDB_Virtual_Log_Files],
+	@TempDB_Metadata_Memory_Optimized													[TempDB_Metadata_Memory_Optimized]
+from sys.dm_os_sys_info
 
 
 
