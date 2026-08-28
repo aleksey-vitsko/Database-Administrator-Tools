@@ -1,6 +1,6 @@
 
 
-create or alter procedure DatabaseSpaceUsage (
+create or alter procedure DatabaseSpaceUsage_old (
 	@DatabaseName			nvarchar(200)	= '',
 	@Command				varchar(50)		= 'all'				-- "all" output mode by default
 	
@@ -29,6 +29,7 @@ Description: For a given database, shows:
 
 History:
 
+2026-08-28 --> Aleksey Vitsko - retired stored procedure (v2 released)
 2025-01-29 --> Aleksey Vitsko - when calling sp_spaceused, both table name and schema name should be taken in brackets
 2023-12-05 --> Aleksey Vitsko - add square brackets for database names like "A.B.C" (issue https://github.com/aleksey-vitsko/Database-Administrator-Tools/issues/2 )
 2022-11-30 --> Aleksey Vitsko - uncomment the logging part, corrections to make it work (full refactor yet to come) 
