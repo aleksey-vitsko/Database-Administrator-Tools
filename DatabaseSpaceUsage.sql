@@ -13,20 +13,32 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.1.0
+Version: 2.1.2
 
 Description: 
 
-For a given database, shows how much data tables (heap, clustered) and indexes (NCI, CCI, NCCI, XML, JSON, Spatial, NCI Hash) take,
-on database and table levels.
+For a given database, shows how much space is used by:
 
+- data (heap, clustered)
+- indexes (NCI, CCI, NCCI, XML, JSON, Spatial, NCI Hash)
+- reserved space
+
+On database and table levels.
 All numbers are in megabytes, with two digits precision.
 
 
 History:
 
+2026-08-31 -> Aleksey Vitsko - updated description; added "tested on" section.
 2026-08-31 -> Aleksey Vitsko - added total database size, percent of free space, table count
 2026-08-28 -> Aleksey Vitsko - created stored procedure v2
+
+
+Tested on:
+
+- SQL Server 2016 (SP2), 2017 (RTM), 2019 (RTM), 2022 (RTM), 2025 (RTM)
+- Azure SQL Managed Instance (SQL 2022 update policy)
+- Azure SQL Database
 
 
 *****************************************************************************************************************************************************************/
