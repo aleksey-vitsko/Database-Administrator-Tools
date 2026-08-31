@@ -13,7 +13,7 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.0.0
+Version: 2.1.0
 
 Description: 
 
@@ -25,6 +25,7 @@ All numbers are in megabytes, with two digits precision.
 
 History:
 
+2026-08-31 -> Aleksey Vitsko - added total database size, percent of free space, table count
 2026-08-28 -> Aleksey Vitsko - created stored procedure v2
 
 
@@ -67,7 +68,13 @@ end
 
 /* variables */
 declare 
-	@SQL			nvarchar(max)
+	@SQL						nvarchar(max),
+	
+	@total_data_file_mb			decimal(38,2),
+	@total_allocated_mb			decimal(38,2),
+	@total_free_space_pct		varchar(10),
+
+	@table_count				int
 
 
 /* main temp table holding list of tables */
@@ -128,6 +135,9 @@ order by schema_name(schema_id), [name]'
 insert into #Tables ([object_id], [schema_name], table_name)
 exec (@SQL)
 
+set @table_count = (select count(*) from #Tables)
+
+
 
 
 /* get page counts by index type for each table */
@@ -164,6 +174,7 @@ exec (@SQL)
 
 
 
+/* calculate index sizes in megabytes */
 update t
 	set heap_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		heap_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
@@ -259,21 +270,61 @@ update #Tables
 
 
 
+/* total database space usage */
+drop table if exists #DatabaseSpaceUsage
+
+create table #DatabaseSpaceUsage (
+	total_data_file_mb					decimal(38,2),
+	total_allocated_mb					decimal(38,2),
+	total_free_space_pct				decimal(5,2)
+	)
+
+
+set @SQL = 'select
+	sum(cast(total_page_count as decimal(38,2))) / 128.00						[total_size_MB],
+	sum(cast(allocated_extent_page_count as decimal(38,2))) / 128.00			[used_MB]
+from [' + @DatabaseName + '].sys.dm_db_file_space_usage'
+
+
+insert into #DatabaseSpaceUsage (total_data_file_mb, total_allocated_mb)
+exec (@SQL)
+
+
+update #DatabaseSpaceUsage
+	set total_free_space_pct = (total_allocated_mb / total_data_file_mb) * 100
+
+
+select
+	@total_data_file_mb = total_data_file_mb,
+	@total_allocated_mb = total_allocated_mb,
+	@total_free_space_pct = cast(total_free_space_pct as varchar) + ' %'
+from #DatabaseSpaceUsage
+
+
+
+/*************************************************** Show Data ************************************************/
+
 
 /* simple */
 if @ExpertMode = 0 begin
 
 	select 
-		@DatabaseName										[Database_Name],
-		sum(CI_used_mb) + sum(heap_used_mb)					[Table_MB],
+		@DatabaseName								[Database_Name],
+		@table_count								[Table_Count],
+		
+		sum(CI_used_mb) + sum(heap_used_mb)			[Table_MB],
 	
-		sum(NCI_used_mb)									[NonClustered],
-		sum(CCI_used_mb) + sum(NCCI_used_mb)				[Columnstore],
+		sum(NCI_used_mb)							[NonClustered],
+		sum(CCI_used_mb) + sum(NCCI_used_mb)		[Columnstore],
 
 		sum(XML_used_mb) + sum(spatial_used_mb) + sum(JSON_used_mb) + sum(NCI_hash_used_mb)		[Other_IX],
 	
-		sum(sum_reserved_free_mb)							[Reserved],
-		sum(sum_reserved_mb)								[Total_MB]
+		sum(sum_reserved_free_mb)					[Reserved],
+		sum(sum_reserved_mb)						[Total_MB],
+
+		@total_allocated_mb							[Allocated_MB],
+		@total_data_file_mb							[Data_Files_MB],
+		@total_free_space_pct						[Pct_Free]
 
 	from #Tables
 
@@ -309,21 +360,28 @@ end
 if @ExpertMode = 1 begin
 
 	select 
-		@DatabaseName						[Database_Name],
-		sum(heap_used_mb)					[Heap],
-		sum(CI_used_mb)						[Clustered],
-		sum(NCI_used_mb)					[NonClustered],
+		@DatabaseName								[Database_Name],
+		@table_count								[Table_Count],
+
+		sum(heap_used_mb)							[Heap],
+		sum(CI_used_mb)								[Clustered],
+		sum(NCI_used_mb)							[NonClustered],
 	
-		sum(CCI_used_mb)					[CS_CI],
-		sum(NCCI_used_mb)					[CS_NCI],
+		sum(CCI_used_mb)							[CS_CI],
+		sum(NCCI_used_mb)							[CS_NCI],
 
-		sum(XML_used_mb)					[XML],
-		sum(spatial_used_mb)				[Spatial],
-		sum(JSON_used_mb)					[JSON],
-		sum(NCI_hash_used_mb)				[NCI_Hash],
+		sum(XML_used_mb)							[XML],
+		sum(spatial_used_mb)						[Spatial],
+		sum(JSON_used_mb)							[JSON],
+		sum(NCI_hash_used_mb)						[NCI_Hash],
 
-		sum(sum_reserved_free_mb)			[Reserved],
-		sum(sum_reserved_mb)				[Total_MB]
+		sum(sum_reserved_free_mb)					[Reserved],
+		sum(sum_reserved_mb)						[Total_MB],
+
+		@total_allocated_mb							[Allocated_MB],
+		@total_data_file_mb							[Data_Files_MB],
+		@total_free_space_pct						[Pct_Free]
+
 
 	from #Tables
 
