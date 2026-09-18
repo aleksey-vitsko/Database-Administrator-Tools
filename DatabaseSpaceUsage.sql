@@ -13,7 +13,7 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.1.2
+Version: 2.1.3
 
 Description: 
 
@@ -29,6 +29,7 @@ All numbers are in megabytes, with two digits precision.
 
 History:
 
+2026-09-18 -> Aleksey Vitsko - correction: "free" -> "used" percent
 2026-08-31 -> Aleksey Vitsko - updated description; added "tested on" section.
 2026-08-31 -> Aleksey Vitsko - added total database size, percent of free space, table count
 2026-08-28 -> Aleksey Vitsko - created stored procedure v2
@@ -84,7 +85,7 @@ declare
 	
 	@total_data_file_mb			decimal(38,2),
 	@total_allocated_mb			decimal(38,2),
-	@total_free_space_pct		varchar(10),
+	@total_used_space_pct		varchar(10),
 
 	@table_count				int
 
@@ -288,7 +289,7 @@ drop table if exists #DatabaseSpaceUsage
 create table #DatabaseSpaceUsage (
 	total_data_file_mb					decimal(38,2),
 	total_allocated_mb					decimal(38,2),
-	total_free_space_pct				decimal(5,2)
+	total_used_space_pct				decimal(5,2)
 	)
 
 
@@ -303,13 +304,13 @@ exec (@SQL)
 
 
 update #DatabaseSpaceUsage
-	set total_free_space_pct = (total_allocated_mb / total_data_file_mb) * 100
+	set total_used_space_pct = (total_allocated_mb / total_data_file_mb) * 100
 
 
 select
 	@total_data_file_mb = total_data_file_mb,
 	@total_allocated_mb = total_allocated_mb,
-	@total_free_space_pct = cast(total_free_space_pct as varchar) + ' %'
+	@total_used_space_pct = cast(total_used_space_pct as varchar) + ' %'
 from #DatabaseSpaceUsage
 
 
@@ -336,7 +337,7 @@ if @ExpertMode = 0 begin
 
 		@total_allocated_mb							[Allocated_MB],
 		@total_data_file_mb							[Data_Files_MB],
-		@total_free_space_pct						[Pct_Free]
+		@total_used_space_pct						[Pct_Used]
 
 	from #Tables
 
@@ -392,7 +393,7 @@ if @ExpertMode = 1 begin
 
 		@total_allocated_mb							[Allocated_MB],
 		@total_data_file_mb							[Data_Files_MB],
-		@total_free_space_pct						[Pct_Free]
+		@total_used_space_pct						[Pct_Used]
 
 
 	from #Tables
