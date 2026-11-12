@@ -13,7 +13,7 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.1.3
+Version: 2.2
 
 Description: 
 
@@ -23,12 +23,13 @@ For a given database, shows how much space is used by:
 - indexes (NCI, CCI, NCCI, XML, JSON, Spatial, NCI Hash)
 - reserved space
 
-On database and table levels.
+On database and table/view levels.
 All numbers are in megabytes, with two digits precision.
 
 
 History:
 
+2026-11-12 -> Aleksey Vitsko - added support for indexed views
 2026-09-18 -> Aleksey Vitsko - correction: "free" -> "used" percent
 2026-08-31 -> Aleksey Vitsko - updated description; added "tested on" section.
 2026-08-31 -> Aleksey Vitsko - added total database size, percent of free space, table count
@@ -87,17 +88,23 @@ declare
 	@total_allocated_mb			decimal(38,2),
 	@total_used_space_pct		varchar(10),
 
-	@table_count				int
+	@table_count				int,
+	@indexed_view_count			int
 
 
 /* main temp table holding list of tables */
-drop table if exists #Tables 
+drop table if exists #Tables_and_Views 
 
-create table #Tables (
+create table #Tables_and_Views (
 	ID							int identity primary key,
+	
 	[object_id]					bigint,
 	[schema_name]				nvarchar(128),
+
 	table_name					nvarchar(128),
+	indexed_view_name			nvarchar(128),
+
+	[type]						varchar(10),
 
 	row_count					bigint,
 
@@ -140,20 +147,43 @@ create table #Tables (
 set @SQL = 'select
 	[object_id],
 	schema_name(schema_id),
-	[name]
+	[name],
+	''table''
 from ' + @DatabaseName + '.sys.tables
 order by schema_name(schema_id), [name]'
 
 
-insert into #Tables ([object_id], [schema_name], table_name)
+insert into #Tables_and_Views ([object_id], [schema_name], table_name, [type])
 exec (@SQL)
 
-set @table_count = (select count(*) from #Tables)
+set @table_count = (select count(*) from #Tables_and_Views where [type] = 'table')
 
 
 
 
-/* get page counts by index type for each table */
+/* get indexed views list with schemas */
+set @SQL = 'select
+	v.[object_id],
+	schema_name(v.schema_id),
+	v.[name],
+	''view''
+from ' + @DatabaseName + '.sys.views v
+	join ' + @DatabaseName + '.sys.indexes i on
+		v.object_id = i.object_id
+group by v.object_id, schema_name(v.schema_id), v.[name]
+order by schema_name(v.schema_id), v.[name]'
+
+
+insert into #Tables_and_Views ([object_id], [schema_name], indexed_view_name, [type])
+exec (@SQL)
+
+set @indexed_view_count = (select count(*) from #Tables_and_Views where [type] = 'view')
+
+
+
+
+
+/* get page counts by index type for each table or indexed view */
 drop table if exists #Sum_Index_Pages 
 
 create table #Sum_Index_Pages (
@@ -165,6 +195,7 @@ create table #Sum_Index_Pages (
 	)
 
 
+/* for tables */
 set @SQL = '
 select
 			t.[object_id],
@@ -181,9 +212,32 @@ select
 		group by t.[object_id], i.type_desc'
 
 
+insert into #Sum_Index_Pages ([object_id], [type_desc], count_of_indexes, sum_used_page_count, sum_reserved_page_count)
+exec (@SQL)
+
+
+
+/* for views */
+set @SQL = '
+select
+			v.[object_id],
+			i.type_desc,
+			count(*)							[count_of_indexes],
+			sum(ps.used_page_count)				[sum_used_page_count],
+			sum(ps.reserved_page_count)			[sum_reserved_page_count]
+		from ' + @DatabaseName + '.sys.views v
+			join ' + @DatabaseName + '.sys.indexes i on 
+				v.[object_id] = i.[object_id]
+			join ' + @DatabaseName + '.sys.dm_db_partition_stats ps on
+				v.[object_id] = ps.[object_id]
+				and i.index_id = ps.index_id
+		group by v.[object_id], i.type_desc'
+
 
 insert into #Sum_Index_Pages ([object_id], [type_desc], count_of_indexes, sum_used_page_count, sum_reserved_page_count)
 exec (@SQL)
+
+
 
 
 
@@ -191,7 +245,7 @@ exec (@SQL)
 update t
 	set heap_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		heap_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'HEAP'
@@ -200,7 +254,7 @@ from #Tables t
 update t
 	set CI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		CI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'CLUSTERED'
@@ -209,7 +263,7 @@ from #Tables t
 update t
 	set NCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED'
@@ -218,7 +272,7 @@ from #Tables t
 update t
 	set CCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		CCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'CLUSTERED COLUMNSTORE'
@@ -227,7 +281,7 @@ from #Tables t
 update t
 	set NCCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED COLUMNSTORE'
@@ -237,7 +291,7 @@ from #Tables t
 update t
 	set XML_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		XML_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'XML'
@@ -246,7 +300,7 @@ from #Tables t
 update t
 	set spatial_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		spatial_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'SPATIAL'
@@ -255,7 +309,7 @@ from #Tables t
 update t
 	set NCI_hash_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCI_hash_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED HASH'
@@ -264,7 +318,7 @@ from #Tables t
 update t
 	set JSON_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		JSON_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables t
+from #Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'JSON'
@@ -272,12 +326,12 @@ from #Tables t
 
 
 /* total values */
-update #Tables
+update #Tables_and_Views
 	set sum_used_mb = heap_used_mb + CI_used_mb + NCI_used_mb + CCI_used_mb + NCCI_used_mb + XML_used_mb + spatial_used_mb + JSON_used_mb + NCI_hash_used_mb,
 		sum_reserved_mb = heap_reserved_mb + CI_reserved_mb + NCI_reserved_mb + CCI_reserved_mb + NCCI_reserved_mb + XML_reserved_mb + spatial_reserved_mb + JSON_reserved_mb + NCI_hash_reserved_mb
 
 
-update #Tables
+update #Tables_and_Views
 	set sum_reserved_free_mb = sum_reserved_mb - sum_used_mb
 
 
@@ -324,6 +378,7 @@ if @ExpertMode = 0 begin
 	select 
 		@DatabaseName								[Database_Name],
 		@table_count								[Table_Count],
+		@indexed_view_count							[Indexed_Views],
 		
 		sum(CI_used_mb) + sum(heap_used_mb)			[Table_MB],
 	
@@ -339,13 +394,18 @@ if @ExpertMode = 0 begin
 		@total_data_file_mb							[Data_Files_MB],
 		@total_used_space_pct						[Pct_Used]
 
-	from #Tables
+	from #Tables_and_Views
 
 
 	select 
 		[schema_name],
-		table_name,
-	
+		coalesce(table_name,indexed_view_name)		[table_or_view],
+		
+		case 
+			when [type] = 'table' then 'T'
+			when [type] = 'view' then 'V'
+		end	[Type],
+
 		case 
 			when CI_used_mb > 0 then CI_used_mb
 			when heap_used_mb > 0 then heap_used_mb
@@ -360,7 +420,7 @@ if @ExpertMode = 0 begin
 		sum_reserved_free_mb						[Reserved],
 		sum_reserved_mb								[Total_MB]
 
-	from #Tables
+	from #Tables_and_Views
 	order by sum_reserved_mb desc
 
 end
@@ -375,6 +435,7 @@ if @ExpertMode = 1 begin
 	select 
 		@DatabaseName								[Database_Name],
 		@table_count								[Table_Count],
+		@indexed_view_count							[Indexed_Views],
 
 		sum(heap_used_mb)							[Heap],
 		sum(CI_used_mb)								[Clustered],
@@ -396,13 +457,18 @@ if @ExpertMode = 1 begin
 		@total_used_space_pct						[Pct_Used]
 
 
-	from #Tables
+	from #Tables_and_Views
 
 
 	select 
 		[schema_name],
-		table_name,
+		coalesce(table_name,indexed_view_name)		[table_or_view],
 	
+		case 
+			when [type] = 'table' then 'T'
+			when [type] = 'view' then 'V'
+		end	[Type],
+
 		heap_used_mb						[Heap],
 		CI_used_mb							[Clustered],
 		NCI_used_mb							[NonClustered],
@@ -418,7 +484,7 @@ if @ExpertMode = 1 begin
 		sum_reserved_free_mb				[Reserved],
 		sum_reserved_mb						[Total_MB]
 
-	from #Tables
+	from #Tables_and_Views
 	order by sum_reserved_mb desc
 
 end
