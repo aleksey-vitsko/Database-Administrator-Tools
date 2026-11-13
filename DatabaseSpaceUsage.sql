@@ -13,7 +13,7 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.2
+Version: 2.3
 
 Description: 
 
@@ -29,6 +29,7 @@ All numbers are in megabytes, with two digits precision.
 
 History:
 
+2026-11-13 -> Aleksey Vitsko - added query store size info
 2026-11-12 -> Aleksey Vitsko - added support for indexed views
 2026-09-18 -> Aleksey Vitsko - correction: "free" -> "used" percent
 2026-08-31 -> Aleksey Vitsko - updated description; added "tested on" section.
@@ -87,6 +88,8 @@ declare
 	@total_data_file_mb			decimal(38,2),
 	@total_allocated_mb			decimal(38,2),
 	@total_used_space_pct		varchar(10),
+
+	@query_store_mb				int,
 
 	@table_count				int,
 	@indexed_view_count			int
@@ -369,6 +372,23 @@ from #DatabaseSpaceUsage
 
 
 
+/* query store size */
+drop table if exists #query_store_mb
+
+create table #query_store_mb (	
+	query_store_mb				int
+	)
+
+set @SQL = 'select current_storage_size_mb from ' + @DatabaseName + '.sys.database_query_store_options'
+
+insert into #query_store_mb
+exec (@SQL)
+
+set @query_store_mb = (select query_store_mb from #query_store_mb)
+
+
+
+
 /*************************************************** Show Data ************************************************/
 
 
@@ -388,8 +408,10 @@ if @ExpertMode = 0 begin
 		sum(XML_used_mb) + sum(spatial_used_mb) + sum(JSON_used_mb) + sum(NCI_hash_used_mb)		[Other_IX],
 	
 		sum(sum_reserved_free_mb)					[Reserved],
-		sum(sum_reserved_mb)						[Total_MB],
-
+		
+		@query_store_mb								[QueryStore],
+		sum(sum_reserved_mb) + @query_store_mb		[Sum_MB],
+		
 		@total_allocated_mb							[Allocated_MB],
 		@total_data_file_mb							[Data_Files_MB],
 		@total_used_space_pct						[Pct_Used]
@@ -450,8 +472,9 @@ if @ExpertMode = 1 begin
 		sum(NCI_hash_used_mb)						[NCI_Hash],
 
 		sum(sum_reserved_free_mb)					[Reserved],
-		sum(sum_reserved_mb)						[Total_MB],
-
+		
+		@query_store_mb								[QueryStore],
+		sum(sum_reserved_mb) + 	@query_store_mb		[Sum_MB],
 		@total_allocated_mb							[Allocated_MB],
 		@total_data_file_mb							[Data_Files_MB],
 		@total_used_space_pct						[Pct_Used]
