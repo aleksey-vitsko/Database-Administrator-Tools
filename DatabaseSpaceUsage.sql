@@ -2,8 +2,11 @@
 
 create or alter procedure DatabaseSpaceUsage (
 	@DatabaseName					nvarchar(128)	= '',
-	@ExpertMode						smallint = 0
+	@ExpertMode						smallint = 0,
+	
+	@LogToTable						varchar(256) = ''
 	)
+with execute as owner
 as begin
 
 
@@ -13,7 +16,7 @@ as begin
 Author: Aleksey Vitsko
 
 
-Version: 2.3
+Version: 2.4
 
 Description: 
 
@@ -29,6 +32,7 @@ All numbers are in megabytes, with two digits precision.
 
 History:
 
+2026-11-14 -> Aleksey Vitsko - added logging functionality (@LogToTable)
 2026-11-13 -> Aleksey Vitsko - added query store size info
 2026-11-12 -> Aleksey Vitsko - added support for indexed views
 2026-09-18 -> Aleksey Vitsko - correction: "free" -> "used" percent
@@ -96,9 +100,9 @@ declare
 
 
 /* main temp table holding list of tables */
-drop table if exists #Tables_and_Views 
+drop table if exists ##Tables_and_Views 
 
-create table #Tables_and_Views (
+create table ##Tables_and_Views (
 	ID							int identity primary key,
 	
 	[object_id]					bigint,
@@ -156,10 +160,10 @@ from ' + @DatabaseName + '.sys.tables
 order by schema_name(schema_id), [name]'
 
 
-insert into #Tables_and_Views ([object_id], [schema_name], table_name, [type])
+insert into ##Tables_and_Views ([object_id], [schema_name], table_name, [type])
 exec (@SQL)
 
-set @table_count = (select count(*) from #Tables_and_Views where [type] = 'table')
+set @table_count = (select count(*) from ##Tables_and_Views where [type] = 'table')
 
 
 
@@ -177,10 +181,10 @@ group by v.object_id, schema_name(v.schema_id), v.[name]
 order by schema_name(v.schema_id), v.[name]'
 
 
-insert into #Tables_and_Views ([object_id], [schema_name], indexed_view_name, [type])
+insert into ##Tables_and_Views ([object_id], [schema_name], indexed_view_name, [type])
 exec (@SQL)
 
-set @indexed_view_count = (select count(*) from #Tables_and_Views where [type] = 'view')
+set @indexed_view_count = (select count(*) from ##Tables_and_Views where [type] = 'view')
 
 
 
@@ -248,7 +252,7 @@ exec (@SQL)
 update t
 	set heap_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		heap_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'HEAP'
@@ -257,7 +261,7 @@ from #Tables_and_Views t
 update t
 	set CI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		CI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'CLUSTERED'
@@ -266,7 +270,7 @@ from #Tables_and_Views t
 update t
 	set NCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED'
@@ -275,7 +279,7 @@ from #Tables_and_Views t
 update t
 	set CCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		CCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'CLUSTERED COLUMNSTORE'
@@ -284,7 +288,7 @@ from #Tables_and_Views t
 update t
 	set NCCI_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCCI_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED COLUMNSTORE'
@@ -294,7 +298,7 @@ from #Tables_and_Views t
 update t
 	set XML_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		XML_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'XML'
@@ -303,7 +307,7 @@ from #Tables_and_Views t
 update t
 	set spatial_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		spatial_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'SPATIAL'
@@ -312,7 +316,7 @@ from #Tables_and_Views t
 update t
 	set NCI_hash_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		NCI_hash_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'NONCLUSTERED HASH'
@@ -321,7 +325,7 @@ from #Tables_and_Views t
 update t
 	set JSON_used_mb = cast([sum_used_page_count] as decimal(38,2)) / 128,
 		JSON_reserved_mb = cast([sum_reserved_page_count] as decimal(38,2)) / 128
-from #Tables_and_Views t
+from ##Tables_and_Views t
 	join #Sum_Index_Pages s on
 		t.[object_id] = s.[object_id]
 		and s.[type_desc] = 'JSON'
@@ -329,12 +333,12 @@ from #Tables_and_Views t
 
 
 /* total values */
-update #Tables_and_Views
+update ##Tables_and_Views
 	set sum_used_mb = heap_used_mb + CI_used_mb + NCI_used_mb + CCI_used_mb + NCCI_used_mb + XML_used_mb + spatial_used_mb + JSON_used_mb + NCI_hash_used_mb,
 		sum_reserved_mb = heap_reserved_mb + CI_reserved_mb + NCI_reserved_mb + CCI_reserved_mb + NCCI_reserved_mb + XML_reserved_mb + spatial_reserved_mb + JSON_reserved_mb + NCI_hash_reserved_mb
 
 
-update #Tables_and_Views
+update ##Tables_and_Views
 	set sum_reserved_free_mb = sum_reserved_mb - sum_used_mb
 
 
@@ -389,6 +393,106 @@ set @query_store_mb = (select query_store_mb from #query_store_mb)
 
 
 
+/* log to table */
+if @LogToTable <> '' begin
+
+	set @SQL = 'drop table if exists #Count
+
+	create table #Count (Cnt int)
+
+	insert into #Count (cnt)
+	select count(*) from ' + @LogToTable
+
+	/* check if table exists */
+	begin try
+	
+		exec (@SQL)
+	
+	end try
+
+	/* if not, create it */
+	begin catch
+	
+		set @SQL = 'create table ' + @LogToTable + ' (
+			ID						int identity primary key,
+			Date_Time				datetime default getdate(),
+			
+			Database_Name			varchar(128),
+			Table_Count				int,
+			Indexed_Views			int,
+		
+			Table_MB				int,
+			[NonClustered]			int,
+			[ColumnStore]			int,
+			Other_IX				int,
+			Reserved				int,
+			QueryStore				int,
+			Sum_MB					int,
+			Allocated_MB			int,
+			Data_Files_MB			int,
+			Pct_Used				varchar(10),
+
+			Allocated_Delta_MB		int
+			)' 
+
+		exec(@SQL)
+
+	end catch
+	
+	set @SQL = 'insert into ' + @LogToTable + ' (Database_Name, Table_Count, Indexed_Views, Table_MB, [NonClustered], [ColumnStore], Other_IX, Reserved, QueryStore, Sum_MB, Allocated_MB, Data_Files_MB, Pct_Used)
+	select 
+		''' + @DatabaseName + ''',
+		' + cast(@table_count as varchar) + ',
+		' + cast(@indexed_view_count as varchar) + ',
+		
+		sum(CI_used_mb) + sum(heap_used_mb)			[Table_MB],
+	
+		sum(NCI_used_mb)							[NonClustered],
+		sum(CCI_used_mb) + sum(NCCI_used_mb)		[Columnstore],
+
+		sum(XML_used_mb) + sum(spatial_used_mb) + sum(JSON_used_mb) + sum(NCI_hash_used_mb)		[Other_IX],
+	
+		sum(sum_reserved_free_mb)					[Reserved],
+		
+		' + cast(@query_store_mb as varchar) + '	[QueryStore],
+		sum(sum_reserved_mb) + ' + cast(@query_store_mb as varchar) + '		[Sum_MB],
+		
+		' + cast(@total_allocated_mb as varchar) + '							[Allocated_MB],
+		' + cast(@total_data_file_mb as varchar)	+ '						[Data_Files_MB],
+		''' + cast(@total_used_space_pct as varchar) + '''						[Pct_Used]
+
+	from ##Tables_and_Views'
+
+	exec (@SQL)
+	
+
+	/* calculate allocated_delta_mb */
+	set @SQL = 'declare 
+			@ID						int,
+			@ID_prev				int,
+			@Allocated_MB_prev		int
+	
+		set @ID = (select max(ID) from ' +  @LogToTable + ')
+
+		set @ID_prev = (select max(ID) from ' +  @LogToTable + ' where Database_Name = ''' + @DatabaseName + ''' and ID < @ID)
+
+		if @ID_prev is NULL begin set @ID_prev = 0 end
+
+		set @Allocated_MB_prev = (select Allocated_MB from ' +  @LogToTable + ' where ID = @ID_prev)
+
+		update top(1) ' +  @LogToTable + '
+			set Allocated_Delta_MB = Allocated_MB - @Allocated_MB_prev
+		where ID = @ID
+
+	'
+
+	exec (@SQL)
+
+end
+
+
+
+
 /*************************************************** Show Data ************************************************/
 
 
@@ -416,7 +520,7 @@ if @ExpertMode = 0 begin
 		@total_data_file_mb							[Data_Files_MB],
 		@total_used_space_pct						[Pct_Used]
 
-	from #Tables_and_Views
+	from ##Tables_and_Views
 
 
 	select 
@@ -442,7 +546,7 @@ if @ExpertMode = 0 begin
 		sum_reserved_free_mb						[Reserved],
 		sum_reserved_mb								[Total_MB]
 
-	from #Tables_and_Views
+	from ##Tables_and_Views
 	order by sum_reserved_mb desc
 
 end
@@ -480,7 +584,7 @@ if @ExpertMode = 1 begin
 		@total_used_space_pct						[Pct_Used]
 
 
-	from #Tables_and_Views
+	from ##Tables_and_Views
 
 
 	select 
@@ -507,7 +611,7 @@ if @ExpertMode = 1 begin
 		sum_reserved_free_mb				[Reserved],
 		sum_reserved_mb						[Total_MB]
 
-	from #Tables_and_Views
+	from ##Tables_and_Views
 	order by sum_reserved_mb desc
 
 end
