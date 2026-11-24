@@ -13,7 +13,7 @@ as begin
 
 Author: Aleksey Vitsko
 
-Version: 1.19
+Version: 1.20
 
 
 Description: 
@@ -23,6 +23,7 @@ Shows host OS, server machine (cpu, memory, etc.), and SQL Server instance-level
 
 History:
 
+2026-11-23 -> Aleksey Vitsko - fixed broken compatibility with Azure SQL DB
 2026-08-04 -> Aleksey Vitsko - added availability groups info
 2026-08-04 -> Aleksey Vitsko - added more information from serverproperty()
 2026-08-03 -> Aleksey Vitsko - fix issue with missing "server config options" on Azure SQL DB
@@ -401,37 +402,40 @@ end
 
 
 
+if @EngineEdition not in ('5') begin
 
-/* availability groups info */
-if (select count(*) from sys.availability_groups) > 0 begin
+	/* availability groups info */
+	if (select count(*) from sys.availability_groups) > 0 begin
 
-    set @AGInfo = ''
+		set @AGInfo = ''
 
-    set @i = 1
+		set @i = 1
 
-    drop table if exists #AGInfo
+		drop table if exists #AGInfo
 
-    create table #AGInfo (
-        ID                      int identity primary key,
-        [name]                  varchar(128),
-        cluster_type_desc       varchar(128)
-        )
+		create table #AGInfo (
+			ID                      int identity primary key,
+			[name]                  varchar(128),
+			cluster_type_desc       varchar(128)
+			)
 
-    insert into #AGInfo ([name], cluster_type_desc)
-    select
-        [name],
-        cluster_type_desc
-    from sys.availability_groups
+		insert into #AGInfo ([name], cluster_type_desc)
+		select
+			[name],
+			cluster_type_desc
+		from sys.availability_groups
 
-    while @i <= (select count(*) from sys.availability_groups) begin
+		while @i <= (select count(*) from sys.availability_groups) begin
 
-        set @AGInfo = (select @AGInfo + [name] + ' (Cluster: ' + upper(cluster_type_desc) + ')' from #AGInfo where ID = @i)
+			set @AGInfo = (select @AGInfo + [name] + ' (Cluster: ' + upper(cluster_type_desc) + ')' from #AGInfo where ID = @i)
 
-        if @i < (select count(*) from sys.availability_groups) begin set @AGInfo = @AGInfo + '; '  end
+			if @i < (select count(*) from sys.availability_groups) begin set @AGInfo = @AGInfo + '; '  end
 
-        set @i = @i + 1
+			set @i = @i + 1
 
-    end
+		end
+
+	end
 
 end
 
